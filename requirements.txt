@@ -1,0 +1,12 @@
+telebot
+fake_useragent
+bs4
+flask
+httpx
+requests_toolbelt
+psutil
+stripe
+googlesearch-python
+beautifulsoup4
+faker
+httpx
