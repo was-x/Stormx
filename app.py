@@ -21,41 +21,30 @@ import os
 app = Flask(__name__)
 app.secret_key = 'storm_x_secret_key_2025'
 
-# Database setup
 def init_db():
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
-    
-    # Create users table
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  telegram_id INTEGER UNIQUE,
-                  username TEXT,
-                  first_name TEXT,
-                  last_name TEXT,
-                  access_key TEXT UNIQUE,
-                  credits INTEGER DEFAULT 100,
-                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-
-    # Create access_logs table
-    c.execute('''CREATE TABLE IF NOT EXISTS access_logs
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  user_id INTEGER,
-                  access_key TEXT,
-                  ip_address TEXT,
-                  accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-
-    # Try adding new columns if not exist
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN bot_token TEXT")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-    
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN chat_id TEXT")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-
+    # Enable WAL mode for better concurrency
+    c.execute("PRAGMA journal_mode=WAL;")
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        telegram_id INTEGER UNIQUE,
+        username TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        access_key TEXT UNIQUE,
+        credits INTEGER DEFAULT 100,
+        bot_token TEXT,
+        chat_id TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS access_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        access_key TEXT,
+        ip_address TEXT,
+        accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
     conn.commit()
     conn.close()
 
@@ -409,14 +398,15 @@ def safe_process(gateway_func, card_data, timeout=10):
     except Exception as e:
         return {"status": "Error", "response": str(e), "gateway": "N/A"}
 
-
 @app.route("/mass_check", methods=["GET"])
 def mass_check():
+    # --- Authentication check ---
     if 'user_id' not in session or 'access_key' not in session:
         def error_generate():
             yield f"data: {json.dumps({'error': 'Authentication required'})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
+    # Verify user
     user = get_user_by_access_key(session['access_key'])
     if not user:
         session.clear()
@@ -424,63 +414,63 @@ def mass_check():
             yield f"data: {json.dumps({'error': 'Invalid session'})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
-    # Prepare cards
+    # --- Prepare card list ---
     card_list = [c.strip() for c in request.args.get("card_list", "").split("\n") if c.strip()]
-    card_count = len(card_list)
-
-    if user[6] < card_count:
-        def error_generate():
-            yield f"data: {json.dumps({'error': 'Insufficient credits!'})}\n\n"
-        return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
-
-    # Deduct all credits upfront
-    update_user_credits(session['user_id'], -card_count)
-    session['credits'] = max(0, session.get('credits', 0) - card_count)
-
     gateway = request.args.get("gateway", "au")
 
     def generate():
         for card_data in card_list:
-            try:
-                # process card
-                if gateway == "au":
-                    result = process_card_au(card_data)
-                elif gateway == "chk":
-                    result = check_card(card_data)
-                elif gateway == "vbv":
-                    result = check_vbv_card(card_data)
-                elif gateway == "b3":
-                    result = process_card_b3(card_data)
-                elif gateway == "svb":
-                    result = process_card_svb(card_data)
-                elif gateway == "pp":
-                    result = process_card_pp(card_data)
-                else:
-                    result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
+            # Refresh credits from DB each loop
+            current_user = get_user_by_access_key(session['access_key'])
+            if not current_user or current_user[6] <= 0:
+                yield f"data: {json.dumps({'error': 'Out of credits'})}\n\n"
+                break  # stop processing
 
-                res_data = {
+            # Deduct credit for this card
+            update_user_credits(session['user_id'], -1)
+            session['credits'] = max(0, session.get('credits', 0) - 1)
+
+            # --- Process the card with timeout ---
+            if gateway == "au":
+                result = safe_process(process_card_au, card_data)
+            elif gateway == "chk":
+                result = safe_process(check_card, card_data)
+            elif gateway == "vbv":
+                result = safe_process(check_vbv_card, card_data)
+            elif gateway == "b3":
+                result = safe_process(process_card_b3, card_data)
+            elif gateway == "svb":
+                result = safe_process(process_card_svb, card_data)
+            elif gateway == "pp":
+                result = safe_process(process_card_pp, card_data)
+            else:
+                result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
+
+            # --- Build response ---
+            res_data = {
+                "card": card_data,
+                "status": result.get("status", "Error"),
+                "response": result.get("response", "Unknown error"),
+                "gateway": result.get("gateway", gateway.upper())
+            }
+
+            # --- Bot notification ---
+            if res_data["status"].lower() == "approved":
+                send_card_to_user_bot(session['user_id'], {
                     "card": card_data,
-                    "status": result.get("status", "Error"),
-                    "response": result.get("response", "Unknown error"),
-                    "gateway": result.get("gateway", gateway.upper())
-                }
+                    "status": res_data["status"],
+                    "response": res_data["response"],
+                    "gateway": res_data["gateway"],
+                    "bin": {},
+                    "timestamp": datetime.now().strftime("%H:%M:%S")
+                })
 
-                if res_data["status"].lower() == "approved":
-                    send_card_to_user_bot(session['user_id'], {
-                        "card": card_data,
-                        "status": res_data["status"],
-                        "response": res_data["response"],
-                        "gateway": res_data["gateway"],
-                        "bin": {},
-                        "timestamp": datetime.now().strftime("%H:%M:%S")
-                    })
-
-                yield f"data: {json.dumps(res_data)}\n\n"
-
-            except Exception as e:
-                yield f"data: {json.dumps({'status': 'Error', 'response': str(e), 'gateway': gateway.upper()})}\n\n"
+            # --- Yield result to client ---
+            yield f"data: {json.dumps(res_data)}\n\n"
+            time.sleep(0.3)  # slight delay to avoid flooding
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
 
 @app.route('/save_bot', methods=['POST'])
 def save_bot():
