@@ -1,16 +1,24 @@
 <script>
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const massForm = document.getElementById('massCardForm');
     const resultsDiv = document.getElementById('massResults');
     const fileInput = document.getElementById('card_file');
     const textArea = document.getElementById('card_list');
-    let currentCardList = '';
+    const btn = document.getElementById('massCheckButton');
 
-    // Handle file selection
-    fileInput.addEventListener('change', function(e) {
+    // Verify required elements exist
+    if (!massForm || !resultsDiv || !fileInput || !textArea || !btn) {
+        console.error("❌ Missing required HTML elements. Check your IDs in HTML.");
+        return;
+    }
+
+    let currentCardList = textArea.value;
+
+    // Handle file upload
+    fileInput.addEventListener('change', function () {
         if (this.files.length > 0) {
             const reader = new FileReader();
-            reader.onload = function(event) {
+            reader.onload = function (event) {
                 textArea.value = event.target.result;
                 currentCardList = event.target.result;
             };
@@ -18,18 +26,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Update currentCardList when textarea changes
-    textArea.addEventListener('input', function() {
-        currentCardList = this.value;
-    });
+    // Track textarea input
+    textArea.addEventListener('input', () => currentCardList = textArea.value);
 
-    // Initialize currentCardList with textarea value
-    currentCardList = textArea.value;
-
-    massForm.addEventListener('submit', function(e) {
+    // Handle form submit
+    massForm.addEventListener('submit', function (e) {
         e.preventDefault();
-
-        const gateway = document.getElementById('gateway').value;
+        const gateway = document.getElementById('gateway')?.value || "";
         const cardList = currentCardList.trim();
 
         if (!cardList) {
@@ -40,119 +43,135 @@ document.addEventListener('DOMContentLoaded', function() {
         startMassCheck(gateway, cardList);
     });
 
-    function startMassCheck(gateway, cardList) {
+    // Helper to prepend elements (safe for all browsers)
+    function safePrepend(parent, el) {
+        parent.insertBefore(el, parent.firstChild);
+    }
+
+    async function startMassCheck(gateway, cardList) {
         resultsDiv.innerHTML = '';
         let approved = 0, declined = 0, errors = 0;
 
-        const btn = document.getElementById('massCheckButton');
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
 
-        // Show gateway being used
         const gatewayInfo = document.createElement('div');
         gatewayInfo.className = "alert alert-info mb-3";
         gatewayInfo.innerHTML = `<i class="bi bi-info-circle"></i> Using gateway: ${gateway.toUpperCase()}`;
-        resultsDiv.appendChild(gatewayInfo);
+        safePrepend(resultsDiv, gatewayInfo);
 
-        // Encode the card list properly
-        const encodedCardList = encodeURIComponent(cardList);
-        const url = `/mass_check?gateway=${encodeURIComponent(gateway)}&card_list=${encodedCardList}`;
-        
-        const eventSource = new EventSource(url);
-        let isComplete = false;
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
 
-        eventSource.onmessage = function(e) {
-            try {
-                const res = JSON.parse(e.data);
+            const response = await fetch("/mass_check", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ gateway, card_list: cardList }),
+                signal: controller.signal
+            });
 
-                if (res.complete) {
-                    isComplete = true;
-                    eventSource.close();
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Start Mass Check';
+            clearTimeout(timeout);
 
-                    const completeBox = document.createElement('div');
-                    completeBox.className = "result-box bg-success text-white";
-                    completeBox.innerHTML = `
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h5 class="fw-bold"><i class="bi bi-check-circle"></i> Complete</h5>
-                            <span class="badge bg-light text-dark">${res.successful}/${res.processed} Successful</span>
-                        </div>
-                        <p class="mb-0">Processed ${res.processed} of ${res.total} cards</p>
-                    `;
-                    resultsDiv.prepend(completeBox);
-                    return;
+            if (!response.ok) throw new Error(`Server returned ${response.status}`);
+            
+            // Expect server to return NDJSON (one JSON per line)
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                let lines = buffer.split("\n");
+                buffer = lines.pop(); // Keep last incomplete line
+
+                for (let line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const res = JSON.parse(line);
+                        if (res.complete) {
+                            showCompleteBox(res);
+                            continue;
+                        }
+                        if (res.card && res.status) {
+                            if (res.status === "Approved") approved++;
+                            else if (res.status === "Declined") declined++;
+                            else errors++;
+                            showResultBox(res);
+                        }
+                        updateCounts();
+                    } catch (err) {
+                        console.error("JSON parse error:", err);
+                    }
                 }
+            }
 
-                if (res.card && res.status && res.response && res.gateway) {
-                    if (res.status === "Approved") approved++;
-                    else if (res.status === "Declined") declined++;
-                    else errors++;
-
-                    const box = document.createElement('div');
-                    box.className = "result-box " + 
-                        (res.status === "Approved" ? "result-approved" :
-                         res.status === "Declined" ? "result-declined" : "result-error");
-
-                    box.innerHTML = `
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h5 class="fw-bold"><i class="bi bi-shield-lock"></i> Result</h5>
-                            <span class="badge ${res.status === 'Approved' ? 'bg-success' : res.status === 'Declined' ? 'bg-danger' : 'bg-warning text-dark'}">${res.status}</span>
-                        </div>
-                        <p class="mb-1"><i class="bi bi-credit-card-2-front"></i> <strong>Card:</strong> ${res.card}</p>
-                        <p class="mb-1"><i class="bi bi-chat-dots"></i> <strong>Response:</strong> ${res.response}</p>
-                        <p class="mb-0"><i class="bi bi-hdd-network"></i> <strong>Gateway:</strong> ${res.gateway}</p>
-                    `;
-                    resultsDiv.prepend(box);
-
-                    document.getElementById('approvedCount').textContent = approved;
-                    document.getElementById('declinedCount').textContent = declined;
-                    document.getElementById('errorCount').textContent = errors;
+            if (buffer.trim()) {
+                try {
+                    const res = JSON.parse(buffer);
+                    if (res.complete) showCompleteBox(res);
+                    else showResultBox(res);
+                } catch (err) {
+                    console.error("JSON parse error at end:", err);
                 }
-            } catch (error) {
-                console.error('Error parsing message:', error);
             }
-        };
 
-        eventSource.onerror = function(e) {
-            if (!isComplete) {
-                eventSource.close();
-                btn.disabled = false;
-                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Start Mass Check';
+        } catch (err) {
+            console.error("Mass check failed:", err);
+            const errorBox = document.createElement('div');
+            errorBox.className = "result-box result-error";
+            errorBox.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="fw-bold"><i class="bi bi-exclamation-triangle"></i> Error</h5>
+                    <span class="badge bg-danger">Failed</span>
+                </div>
+                <p class="mb-0">Unable to connect or process. Please try again later.</p>
+            `;
+            safePrepend(resultsDiv, errorBox);
+        }
 
-                const errorBox = document.createElement('div');
-                errorBox.className = "result-box result-error";
-                errorBox.innerHTML = `
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h5 class="fw-bold"><i class="bi bi-exclamation-triangle"></i> Connection Error</h5>
-                        <span class="badge bg-danger">Failed</span>
-                    </div>
-                    <p class="mb-0">The connection was interrupted. This often happens when gateways are slow or blocking requests.</p>
-                    <p class="mb-0 mt-2"><strong>Tip:</strong> Try using the VBV/3DS gateway which is more reliable.</p>
-                `;
-                resultsDiv.prepend(errorBox);
-            }
-        };
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Start Mass Check';
 
-        setTimeout(() => {
-            if (!isComplete) {
-                eventSource.close();
-                btn.disabled = false;
-                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Start Mass Check';
+        function updateCounts() {
+            document.getElementById('approvedCount').textContent = approved;
+            document.getElementById('declinedCount').textContent = declined;
+            document.getElementById('errorCount').textContent = errors;
+        }
 
-                const timeoutBox = document.createElement('div');
-                timeoutBox.className = "result-box result-error";
-                timeoutBox.innerHTML = `
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h5 class="fw-bold"><i class="bi bi-clock-history"></i> Timeout</h5>
-                        <span class="badge bg-warning text-dark">Timeout</span>
-                    </div>
-                    <p class="mb-0">Mass check timed out. The gateway may be slow or blocking requests.</p>
-                    <p class="mb-0 mt-2"><strong>Tip:</strong> Try using the VBV/3DS gateway for better reliability.</p>
-                `;
-                resultsDiv.prepend(timeoutBox);
-            }
-        }, 120000);
-    } // closes startMassCheck
-}); // closes DOMContentLoaded
+        function showResultBox(res) {
+            const box = document.createElement('div');
+            box.className = "result-box " +
+                (res.status === "Approved" ? "result-approved" :
+                 res.status === "Declined" ? "result-declined" : "result-error");
+
+            box.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="fw-bold"><i class="bi bi-shield-lock"></i> Result</h5>
+                    <span class="badge ${res.status === 'Approved' ? 'bg-success' : res.status === 'Declined' ? 'bg-danger' : 'bg-warning text-dark'}">${res.status}</span>
+                </div>
+                <p class="mb-1"><i class="bi bi-credit-card-2-front"></i> <strong>Card:</strong> ${res.card}</p>
+                <p class="mb-1"><i class="bi bi-chat-dots"></i> <strong>Response:</strong> ${res.response}</p>
+                <p class="mb-0"><i class="bi bi-hdd-network"></i> <strong>Gateway:</strong> ${res.gateway}</p>
+            `;
+            safePrepend(resultsDiv, box);
+        }
+
+        function showCompleteBox(res) {
+            const completeBox = document.createElement('div');
+            completeBox.className = "result-box bg-success text-white";
+            completeBox.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="fw-bold"><i class="bi bi-check-circle"></i> Complete</h5>
+                    <span class="badge bg-light text-dark">${res.successful}/${res.processed} Successful</span>
+                </div>
+                <p class="mb-0">Processed ${res.processed} of ${res.total} cards</p>
+            `;
+            safePrepend(resultsDiv, completeBox);
+        }
+    }
+});
 </script>
