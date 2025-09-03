@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}STORM X - Single Check{% endblock %}
+
+{% block content %}
+<div class="glass-card p-4">
+    <div class="text-center mb-3">
+        <h3 class="fw-bold"><i class="bi bi-credit-card me-2"></i>Single Card Check</h3>
+        <p class="text-muted mb-0">Check one card with selected gateway</p>
+    </div>
+
+    <!-- Form -->
+    <form id="singleCardForm" class="mb-4">
+        <div class="mb-3">
+            <label for="card_data" class="form-label fw-semibold">Card Details</label>
+            <div class="input-group">
+                <span class="input-group-text bg-primary text-white"><i class="bi bi-credit-card"></i></span>
+                <input type="text" class="form-control" id="card_data" name="card_data"
+                       required placeholder="NUMBER|MM|YY|CVV"
+                       pattern="[0-9]+\|[0-9]+\|[0-9]+\|[0-9]+">
+            </div>
+            <div class="form-text">Format: Card Number|Exp Month|Exp Year|CVV</div>
+        </div>
+
+        <div class="mb-3">
+            <label for="gateway" class="form-label fw-semibold">Gateway</label>
+            <select class="form-select" id="gateway" name="gateway">
+                <option value="au">Stripe Auth 1 </option>
+                <option value="chk">Stripe Auth 2</option>
+                <option value="vbv">3DS Lookup</option>
+                <option value="b3">Braintree Auth</option>
+                <option value="svb">3DS Site based</option>
+                <option value="pp">Paypal [2$]</option>
+            </select>
+        </div>
+
+        <div class="d-grid">
+            <button type="submit" class="btn btn-primary btn-lg" id="checkButton">
+                <i class="bi bi-search"></i> Check Card
+            </button>
+        </div>
+    </form>
+
+    <!-- Result -->
+    <div id="singleResult" class="d-none">
+        <div id="resultBox" class="p-3 rounded shadow-sm" style="background:rgba(13,110,253,0.08); border-left:5px solid #0d6efd;">
+            
+            <!-- Main Result -->
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h5 class="fw-bold mb-0"><i class="bi bi-shield-lock"></i> Result</h5>
+                <span id="statusBadge" class="badge bg-secondary">Processing...</span>
+            </div>
+            <p class="mb-1"><i class="bi bi-credit-card-2-front"></i> <strong>Card:</strong> <span id="resultCard"></span></p>
+            <p class="mb-1"><i class="bi bi-chat-dots"></i> <strong>Response:</strong> <span id="resultResponse"></span></p>
+            <p class="mb-3"><i class="bi bi-hdd-network"></i> <strong>Gateway:</strong> <span id="resultGateway"></span></p>
+
+            <hr class="my-3">
+
+            <!-- BIN Info -->
+            <h6 class="fw-bold mb-2"><i class="bi bi-info-circle"></i> BIN Information</h6>
+            <div class="row">
+                <div class="col-md-6 mb-2"><i class="bi bi-credit-card-2-front"></i> <b>BIN:</b> <span id="binNumber"></span></div>
+                <div class="col-md-6 mb-2"><i class="bi bi-bank"></i> <b>Bank:</b> <span id="binBank"></span></div>
+                <div class="col-md-6 mb-2 d-flex align-items-center">
+                    <i class="bi bi-cash-coin me-1"></i> <b>Brand:</b>
+                    <span id="binBrand" class="ms-1"></span>
+                </div>
+                <div class="col-md-6 mb-2"><i class="bi bi-ui-checks-grid"></i> <b>Type:</b> <span id="binType"></span></div>
+                <div class="col-md-6 mb-2"><i class="bi bi-flag"></i> <b>Country:</b> <span id="binCountry"></span> <span id="binFlag"></span></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const singleForm = document.getElementById('singleCardForm');
+
+    singleForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const cardData = document.getElementById('card_data').value.trim();
+        const gateway = document.getElementById('gateway').value;
+
+        if (!cardData) return;
+
+        const checkBtn = document.getElementById('checkButton');
+        checkBtn.disabled = true;
+        checkBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
+
+        try {
+            const response = await fetch('/check_card', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ 'card_data': cardData, 'gateway': gateway })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                updateSingleResult(data, cardData);
+            } else {
+                alert('Error: ' + data.error);
+            }
+        } catch (error) {
+            alert('Network error: ' + error.message);
+        } finally {
+            checkBtn.disabled = false;
+            checkBtn.innerHTML = '<i class="bi bi-search"></i> Check Card';
+        }
+    });
+
+    function updateSingleResult(data, cardData) {
+        document.getElementById('singleResult').classList.remove('d-none');
+
+        document.getElementById('resultCard').textContent = cardData;
+        document.getElementById('resultResponse').textContent = data.response;
+        document.getElementById('resultGateway').textContent = data.gateway;
+
+        const statusBadge = document.getElementById('statusBadge');
+        statusBadge.textContent = data.status;
+        statusBadge.className = 'badge ' + (data.status === 'Approved' ? 'bg-success' : 'bg-danger');
+
+        // BIN info (from backend)
+        const bin = data.bin || {};
+        document.getElementById('binNumber').textContent = bin.bin || '-';
+        document.getElementById('binBank').textContent = bin.bank || '-';
+        document.getElementById('binType').textContent = bin.type || '-';
+        document.getElementById('binCountry').textContent = bin.country || '-';
+
+        if (bin.country && bin.country.length === 2) {
+            document.getElementById('binFlag').textContent = bin.country.replace(/./g, c => String.fromCodePoint(127397 + c.charCodeAt()));
+        } else {
+            document.getElementById('binFlag').textContent = '';
+        }
+
+        // Brand with inline SVG
+        const brandEl = document.getElementById('binBrand');
+        brandEl.innerHTML = '';
+
+        if (bin.brand) {
+            let svgIcon = '';
+            switch (bin.brand.toLowerCase()) {
+                case 'visa':
+                    svgIcon = `<span style="color:#1a1f71;font-weight:700"><i class="bi bi-credit-card"></i> Visa</span>`;
+                    break;
+                case 'mastercard':
+                    svgIcon = `<span style="color:#eb001b;font-weight:700"><i class="bi bi-circle-half"></i> MasterCard</span>`;
+                    break;
+                case 'amex':
+                case 'american express':
+                    svgIcon = `<span style="color:#2e77bc;font-weight:700"><i class="bi bi-credit-card-2-back"></i> Amex</span>`;
+                    break;
+                case 'discover':
+                    svgIcon = `<span style="color:#ff6000;font-weight:700"><i class="bi bi-globe"></i> Discover</span>`;
+                    break;
+                case 'rupay':
+                    svgIcon = `<span style="color:#1b4f9c;font-weight:700"><i class="bi bi-credit-card"></i> RuPay</span>`;
+                    break;
+                default:
+                    svgIcon = `<span>${bin.brand}</span>`;
+            }
+            brandEl.innerHTML = svgIcon;
+        }
+    }
+});
+</script>
+{% endblock %}
