@@ -401,13 +401,13 @@ def safe_process(gateway_func, card_data, timeout=10):
 @app.route("/mass_check", methods=["GET"])
 def mass_check():
     # --- Authentication check ---
-    if 'user_id' not in session or 'access_key' not in session:
+    if "user_id" not in session or "access_key" not in session:
         def error_generate():
             yield f"data: {json.dumps({'error': 'Authentication required'})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
     # Verify user
-    user = get_user_by_access_key(session['access_key'])
+    user = get_user_by_access_key(session["access_key"])
     if not user:
         session.clear()
         def error_generate():
@@ -420,29 +420,29 @@ def mass_check():
 
     def generate():
         for card_data in card_list:
-            # Refresh credits from DB each loop
-            current_user = get_user_by_access_key(session['access_key'])
+            # Refresh credits each loop
+            current_user = get_user_by_access_key(session["access_key"])
             if not current_user or current_user[6] <= 0:
                 yield f"data: {json.dumps({'error': 'Out of credits'})}\n\n"
-                break  # stop processing
+                break
 
-            # Deduct credit for this card
-            update_user_credits(session['user_id'], -1)
-            session['credits'] = max(0, session.get('credits', 0) - 1)
+            # Deduct 1 credit per card
+            update_user_credits(session["user_id"], -1)
+            session["credits"] = max(0, session.get("credits", 0) - 1)
 
-            # --- Process the card with timeout ---
+            # --- Process with safe_process() ---
             if gateway == "au":
-                result = safe_process(process_card_au, card_data)
+                result = safe_process(process_card_au, card_data, timeout=12)
             elif gateway == "chk":
-                result = safe_process(check_card, card_data)
+                result = safe_process(check_card, card_data, timeout=12)
             elif gateway == "vbv":
-                result = safe_process(check_vbv_card, card_data)
+                result = safe_process(check_vbv_card, card_data, timeout=12)
             elif gateway == "b3":
-                result = safe_process(process_card_b3, card_data)
+                result = safe_process(process_card_b3, card_data, timeout=12)
             elif gateway == "svb":
-                result = safe_process(process_card_svb, card_data)
+                result = safe_process(process_card_svb, card_data, timeout=12)
             elif gateway == "pp":
-                result = safe_process(process_card_pp, card_data)
+                result = safe_process(process_card_pp, card_data, timeout=12)
             else:
                 result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
 
@@ -451,26 +451,28 @@ def mass_check():
                 "card": card_data,
                 "status": result.get("status", "Error"),
                 "response": result.get("response", "Unknown error"),
-                "gateway": result.get("gateway", gateway.upper())
+                "gateway": result.get("gateway", gateway.upper()),
             }
 
             # --- Bot notification ---
             if res_data["status"].lower() == "approved":
-                send_card_to_user_bot(session['user_id'], {
-                    "card": card_data,
-                    "status": res_data["status"],
-                    "response": res_data["response"],
-                    "gateway": res_data["gateway"],
-                    "bin": {},
-                    "timestamp": datetime.now().strftime("%H:%M:%S")
-                })
+                send_card_to_user_bot(
+                    session["user_id"],
+                    {
+                        "card": card_data,
+                        "status": res_data["status"],
+                        "response": res_data["response"],
+                        "gateway": res_data["gateway"],
+                        "bin": {},
+                        "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    },
+                )
 
-            # --- Yield result to client ---
+            # --- Yield to client ---
             yield f"data: {json.dumps(res_data)}\n\n"
-            time.sleep(0.3)  # slight delay to avoid flooding
+            time.sleep(0.2)  # small delay
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
-
 
 @app.route('/save_bot', methods=['POST'])
 def save_bot():
