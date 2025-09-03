@@ -395,15 +395,28 @@ def check_card_route():
         **result_entry
     })
 
+import sys
+import concurrent.futures
+
+def safe_process(gateway_func, card_data, timeout=10):
+    """Run gateway call with timeout to avoid hanging the generator"""
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(gateway_func, card_data)
+            return future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        return {"status": "Error", "response": f"{gateway_func.__name__} timed out", "gateway": "N/A"}
+    except Exception as e:
+        return {"status": "Error", "response": str(e), "gateway": "N/A"}
+
+
 @app.route("/mass_check", methods=["GET"])
 def mass_check():
-    # --- Authentication check ---
     if 'user_id' not in session or 'access_key' not in session:
         def error_generate():
             yield f"data: {json.dumps({'error': 'Authentication required'})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
-    # Verify user
     user = get_user_by_access_key(session['access_key'])
     if not user:
         session.clear()
@@ -411,7 +424,6 @@ def mass_check():
             yield f"data: {json.dumps({'error': 'Invalid session'})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
-    # --- Prepare card list ---
     card_list = [c.strip() for c in request.args.get("card_list", "").split("\n") if c.strip()]
     card_count = len(card_list)
 
@@ -425,22 +437,21 @@ def mass_check():
     def generate():
         for card_data in card_list:
             try:
-                # Deduct credit safely
                 update_user_credits(session['user_id'], -1)
 
-                # Process card
+                # Choose gateway safely with timeout
                 if gateway == "au":
-                    result = process_card_au(card_data)
+                    result = safe_process(process_card_au, card_data)
                 elif gateway == "chk":
-                    result = check_card(card_data)
+                    result = safe_process(check_card, card_data)
                 elif gateway == "vbv":
-                    result = check_vbv_card(card_data)
+                    result = safe_process(check_vbv_card, card_data)
                 elif gateway == "b3":
-                    result = process_card_b3(card_data)
+                    result = safe_process(process_card_b3, card_data)
                 elif gateway == "svb":
-                    result = process_card_svb(card_data)
+                    result = safe_process(process_card_svb, card_data)
                 elif gateway == "pp":
-                    result = process_card_pp(card_data)
+                    result = safe_process(process_card_pp, card_data)
                 else:
                     result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
 
@@ -451,7 +462,6 @@ def mass_check():
                     "gateway": result.get("gateway", gateway.upper())
                 }
 
-                # Bot notification
                 if res_data["status"].lower() == "approved":
                     send_card_to_user_bot(session['user_id'], {
                         "card": card_data,
@@ -462,7 +472,6 @@ def mass_check():
                         "timestamp": datetime.now().strftime("%H:%M:%S")
                     })
 
-                # Yield result
                 yield f"data: {json.dumps(res_data)}\n\n"
                 sys.stdout.flush()
 
@@ -472,6 +481,7 @@ def mass_check():
                 sys.stdout.flush()
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
 
 
 @app.route('/save_bot', methods=['POST'])
