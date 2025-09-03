@@ -141,70 +141,76 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     function startMassCheck(gateway, cardList) {
-        resultsDiv.innerHTML = '';
-        let approved = 0, declined = 0, errors = 0;
+    resultsDiv.innerHTML = '';
+    let approved = 0, declined = 0, errors = 0;
 
-        const btn = document.getElementById('massCheckButton');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
+    const btn = document.getElementById('massCheckButton');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
 
-        // Clear previous results
-        document.getElementById('approvedCount').textContent = '0';
-        document.getElementById('declinedCount').textContent = '0';
-        document.getElementById('errorCount').textContent = '0';
+    // Clear previous results
+    document.getElementById('approvedCount').textContent = '0';
+    document.getElementById('declinedCount').textContent = '0';
+    document.getElementById('errorCount').textContent = '0';
 
-        // Encode the card list properly
-        const encodedCardList = encodeURIComponent(cardList);
-        const url = `/mass_check?gateway=${encodeURIComponent(gateway)}&card_list=${encodedCardList}`;
-        
-        const eventSource = new EventSource(url);
+    // Encode the card list properly
+    const encodedCardList = encodeURIComponent(cardList);
+    const url = `/mass_check?gateway=${encodeURIComponent(gateway)}&card_list=${encodedCardList}`;
+    
+    const eventSource = new EventSource(url);
+    let isComplete = false;
 
-        eventSource.onmessage = function(e) {
-            try {
-                const res = JSON.parse(e.data);
+    eventSource.onmessage = function(e) {
+        try {
+            const res = JSON.parse(e.data);
+            
+            // Check if this is a completion message
+            if (res.complete) {
+                eventSource.close();
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Start Mass Check';
+                
+                // Show completion message
+                const completeBox = document.createElement('div');
+                completeBox.className = "result-box bg-info text-white";
+                completeBox.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="fw-bold"><i class="bi bi-check-circle"></i> Complete</h5>
+                        <span class="badge bg-light text-dark">Done</span>
+                    </div>
+                    <p class="mb-0">Processed ${res.processed} of ${res.total} cards</p>
+                `;
+                resultsDiv.prepend(completeBox);
+                return;
+            }
 
-                // Check if we have valid data
-                if (res.card && res.status && res.response && res.gateway) {
-                    if (res.status === "Approved") approved++;
-                    else if (res.status === "Declined") declined++;
-                    else errors++;
+            // Check if we have valid data
+            if (res.card && res.status && res.response && res.gateway) {
+                if (res.status === "Approved") approved++;
+                else if (res.status === "Declined") declined++;
+                else errors++;
 
-                    const box = document.createElement('div');
-                    box.className = "result-box " + 
-                        (res.status === "Approved" ? "result-approved" :
-                         res.status === "Declined" ? "result-declined" : "result-error");
+                const box = document.createElement('div');
+                box.className = "result-box " + 
+                    (res.status === "Approved" ? "result-approved" :
+                     res.status === "Declined" ? "result-declined" : "result-error");
 
-                    box.innerHTML = `
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h5 class="fw-bold"><i class="bi bi-shield-lock"></i> Result</h5>
-                            <span class="badge ${res.status === 'Approved' ? 'bg-success' : res.status === 'Declined' ? 'bg-danger' : 'bg-warning text-dark'}">${res.status}</span>
-                        </div>
-                        <p class="mb-1"><i class="bi bi-credit-card-2-front"></i> <strong>Card:</strong> ${res.card}</p>
-                        <p class="mb-1"><i class="bi bi-chat-dots"></i> <strong>Response:</strong> ${res.response}</p>
-                        <p class="mb-0"><i class="bi bi-hdd-network"></i> <strong>Gateway:</strong> ${res.gateway}</p>
-                    `;
-                    resultsDiv.prepend(box);
+                box.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="fw-bold"><i class="bi bi-shield-lock"></i> Result</h5>
+                        <span class="badge ${res.status === 'Approved' ? 'bg-success' : res.status === 'Declined' ? 'bg-danger' : 'bg-warning text-dark'}">${res.status}</span>
+                    </div>
+                    <p class="mb-1"><i class="bi bi-credit-card-2-front"></i> <strong>Card:</strong> ${res.card}</p>
+                    <p class="mb-1"><i class="bi bi-chat-dots"></i> <strong>Response:</strong> ${res.response}</p>
+                    <p class="mb-0"><i class="bi bi-hdd-network"></i> <strong>Gateway:</strong> ${res.gateway}</p>
+                `;
+                resultsDiv.prepend(box);
 
-                    document.getElementById('approvedCount').textContent = approved;
-                    document.getElementById('declinedCount').textContent = declined;
-                    document.getElementById('errorCount').textContent = errors;
-                } else if (res.error) {
-                    // Handle error response
-                    errors++;
-                    const box = document.createElement('div');
-                    box.className = "result-box result-error";
-                    box.innerHTML = `
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h5 class="fw-bold"><i class="bi bi-exclamation-triangle"></i> Error</h5>
-                            <span class="badge bg-danger">Error</span>
-                        </div>
-                        <p class="mb-0">${res.error}</p>
-                    `;
-                    resultsDiv.prepend(box);
-                    document.getElementById('errorCount').textContent = errors;
-                }
-            } catch (error) {
-                console.error('Error parsing message:', error);
+                document.getElementById('approvedCount').textContent = approved;
+                document.getElementById('declinedCount').textContent = declined;
+                document.getElementById('errorCount').textContent = errors;
+            } else if (res.error) {
+                // Handle error response
                 errors++;
                 const box = document.createElement('div');
                 box.className = "result-box result-error";
@@ -213,15 +219,31 @@ document.addEventListener('DOMContentLoaded', function() {
                         <h5 class="fw-bold"><i class="bi bi-exclamation-triangle"></i> Error</h5>
                         <span class="badge bg-danger">Error</span>
                     </div>
-                    <p class="mb-0">Failed to parse response: ${error.message}</p>
+                    <p class="mb-0">${res.error}</p>
                 `;
                 resultsDiv.prepend(box);
                 document.getElementById('errorCount').textContent = errors;
             }
-        };
+        } catch (error) {
+            console.error('Error parsing message:', error);
+            errors++;
+            const box = document.createElement('div');
+            box.className = "result-box result-error";
+            box.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="fw-bold"><i class="bi bi-exclamation-triangle"></i> Error</h5>
+                    <span class="badge bg-danger">Error</span>
+                </div>
+                <p class="mb-0">Failed to parse response: ${error.message}</p>
+            `;
+            resultsDiv.prepend(box);
+            document.getElementById('errorCount').textContent = errors;
+        }
+    };
 
-        eventSource.onerror = function(e) {
-            console.error('EventSource error:', e);
+    eventSource.onerror = function(e) {
+        console.error('EventSource error:', e);
+        if (!isComplete) {
             eventSource.close();
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Start Mass Check';
@@ -236,12 +258,35 @@ document.addEventListener('DOMContentLoaded', function() {
                         <h5 class="fw-bold"><i class="bi bi-exclamation-triangle"></i> Error</h5>
                         <span class="badge bg-danger">Failed</span>
                     </div>
-                    <p class="mb-0">Mass check failed to start. Please check your connection and try again.</p>
+                    <p class="mb-0">Connection error. Please check your connection and try again.</p>
                 `;
                 resultsDiv.prepend(errorBox);
                 document.getElementById('errorCount').textContent = errors;
             }
-        };
+        }
+    };
+
+    // Add timeout to close connection if it hangs
+    setTimeout(() => {
+        if (eventSource.readyState !== EventSource.CLOSED && !isComplete) {
+            eventSource.close();
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Start Mass Check';
+            
+            // Show timeout message
+            const timeoutBox = document.createElement('div');
+            timeoutBox.className = "result-box result-error";
+            timeoutBox.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="fw-bold"><i class="bi bi-clock-history"></i> Timeout</h5>
+                    <span class="badge bg-warning text-dark">Timeout</span>
+                </div>
+                <p class="mb-0">Mass check timed out after 30 seconds</p>
+            `;
+            resultsDiv.prepend(timeoutBox);
+        }
+    }, 30000); // 30 second timeout
+}
 
         // Add timeout to close connection if it hangs
         setTimeout(() => {
@@ -252,6 +297,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }, 30000); // 30 second timeout
     }
-});
+);
+
 </script>
 {% endblock %}
