@@ -424,6 +424,7 @@ def mass_check():
             yield f"data: {json.dumps({'error': 'Invalid session'})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
+    # Prepare cards
     card_list = [c.strip() for c in request.args.get("card_list", "").split("\n") if c.strip()]
     card_count = len(card_list)
 
@@ -432,26 +433,28 @@ def mass_check():
             yield f"data: {json.dumps({'error': 'Insufficient credits!'})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
+    # Deduct all credits upfront
+    update_user_credits(session['user_id'], -card_count)
+    session['credits'] = max(0, session.get('credits', 0) - card_count)
+
     gateway = request.args.get("gateway", "au")
 
     def generate():
         for card_data in card_list:
             try:
-                update_user_credits(session['user_id'], -1)
-
-                # Choose gateway safely with timeout
+                # process card
                 if gateway == "au":
-                    result = safe_process(process_card_au, card_data)
+                    result = process_card_au(card_data)
                 elif gateway == "chk":
-                    result = safe_process(check_card, card_data)
+                    result = check_card(card_data)
                 elif gateway == "vbv":
-                    result = safe_process(check_vbv_card, card_data)
+                    result = check_vbv_card(card_data)
                 elif gateway == "b3":
-                    result = safe_process(process_card_b3, card_data)
+                    result = process_card_b3(card_data)
                 elif gateway == "svb":
-                    result = safe_process(process_card_svb, card_data)
+                    result = process_card_svb(card_data)
                 elif gateway == "pp":
-                    result = safe_process(process_card_pp, card_data)
+                    result = process_card_pp(card_data)
                 else:
                     result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
 
@@ -473,16 +476,11 @@ def mass_check():
                     })
 
                 yield f"data: {json.dumps(res_data)}\n\n"
-                sys.stdout.flush()
 
             except Exception as e:
-                error_data = {"status": "Error", "response": str(e), "gateway": gateway.upper()}
-                yield f"data: {json.dumps(error_data)}\n\n"
-                sys.stdout.flush()
+                yield f"data: {json.dumps({'status': 'Error', 'response': str(e), 'gateway': gateway.upper()})}\n\n"
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
-
-
 
 @app.route('/save_bot', methods=['POST'])
 def save_bot():
