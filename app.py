@@ -412,8 +412,8 @@ def mass_check():
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
     # --- Prepare card list ---
-    card_list = request.args.get("card_list", "").split("\n")
-    card_count = len([card for card in card_list if card.strip()])
+    card_list = [c.strip() for c in request.args.get("card_list", "").split("\n") if c.strip()]
+    card_count = len(card_list)
 
     if user[6] < card_count:  # check DB credits
         def error_generate():
@@ -424,13 +424,8 @@ def mass_check():
 
     def generate():
         for card_data in card_list:
-            card_data = card_data.strip()
-            if not card_data:
-                continue
-
-            # Deduct 1 credit per card
+            # Deduct credit in DB only (don’t touch session here)
             update_user_credits(session['user_id'], -1)
-            session['credits'] = max(0, session.get('credits', 0) - 1)
 
             # Process card
             if gateway == "au":
@@ -441,7 +436,7 @@ def mass_check():
                 result = check_vbv_card(card_data)
             elif gateway == "b3":
                 result = process_card_b3(card_data)
-            elif gateway == "svb" :
+            elif gateway == "svb":
                 result = process_card_svb(card_data)
             elif gateway == "pp":
                 result = process_card_pp(card_data)
@@ -462,15 +457,14 @@ def mass_check():
                     "status": res_data["status"],
                     "response": res_data["response"],
                     "gateway": res_data["gateway"],
-                    "bin": {},  # no bin lookup here (optional to add)
+                    "bin": {},  # no bin lookup here
                     "timestamp": datetime.now().strftime("%H:%M:%S")
                 })
 
+            # Flush result to client immediately
             yield f"data: {json.dumps(res_data)}\n\n"
-            time.sleep(0.5)
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
-
 
 @app.route('/save_bot', methods=['POST'])
 def save_bot():
