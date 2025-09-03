@@ -387,7 +387,7 @@ def check_card_route():
 import concurrent.futures
 import random
 
-def safe_process_card(gateway_func, card_data, timeout=15):
+def safe_process_card(gateway_func, card_data, timeout=120):
     """Run one card check safely in a thread with timeout."""
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -454,17 +454,17 @@ def mass_check():
             try:
                 # Pick gateway safely
                 if gateway == "au":
-                    result = safe_process_card(process_card_au, card_data, timeout=15)
+                    result = safe_process_card(process_card_au, card_data, timeout=600)
                 elif gateway == "chk":
-                    result = safe_process_card(check_card, card_data, timeout=15)
+                    result = safe_process_card(check_card, card_data, timeout=600)
                 elif gateway == "vbv":
-                    result = safe_process_card(check_vbv_card, card_data, timeout=15)
+                    result = safe_process_card(check_vbv_card, card_data, timeout=600)
                 elif gateway == "b3":
-                    result = safe_process_card(process_card_b3, card_data, timeout=15)
+                    result = safe_process_card(process_card_b3, card_data, timeout=600)
                 elif gateway == "svb":
-                    result = safe_process_card(process_card_svb, card_data, timeout=15)
+                    result = safe_process_card(process_card_svb, card_data, timeout=600)
                 elif gateway == "pp":
-                    result = safe_process_card(process_card_pp, card_data, timeout=15)
+                    result = safe_process_card(process_card_pp, card_data, timeout=600)
                 else:
                     result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
 
