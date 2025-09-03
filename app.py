@@ -8,6 +8,7 @@ from pp import process_card_pp
 import json
 import threading
 import time
+import sys
 import uuid
 from datetime import datetime
 import requests
@@ -394,7 +395,6 @@ def check_card_route():
         **result_entry
     })
 
-
 @app.route("/mass_check", methods=["GET"])
 def mass_check():
     # --- Authentication check ---
@@ -415,7 +415,7 @@ def mass_check():
     card_list = [c.strip() for c in request.args.get("card_list", "").split("\n") if c.strip()]
     card_count = len(card_list)
 
-    if user[6] < card_count:  # check DB credits
+    if user[6] < card_count:
         def error_generate():
             yield f"data: {json.dumps({'error': 'Insufficient credits!'})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
@@ -424,47 +424,55 @@ def mass_check():
 
     def generate():
         for card_data in card_list:
-            # Deduct credit in DB only (don’t touch session here)
-            update_user_credits(session['user_id'], -1)
+            try:
+                # Deduct credit safely
+                update_user_credits(session['user_id'], -1)
 
-            # Process card
-            if gateway == "au":
-                result = process_card_au(card_data)
-            elif gateway == "chk":
-                result = check_card(card_data)
-            elif gateway == "vbv":
-                result = check_vbv_card(card_data)
-            elif gateway == "b3":
-                result = process_card_b3(card_data)
-            elif gateway == "svb":
-                result = process_card_svb(card_data)
-            elif gateway == "pp":
-                result = process_card_pp(card_data)
-            else:
-                result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
+                # Process card
+                if gateway == "au":
+                    result = process_card_au(card_data)
+                elif gateway == "chk":
+                    result = check_card(card_data)
+                elif gateway == "vbv":
+                    result = check_vbv_card(card_data)
+                elif gateway == "b3":
+                    result = process_card_b3(card_data)
+                elif gateway == "svb":
+                    result = process_card_svb(card_data)
+                elif gateway == "pp":
+                    result = process_card_pp(card_data)
+                else:
+                    result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
 
-            res_data = {
-                "card": card_data,
-                "status": result.get("status", "Error"),
-                "response": result.get("response", "Unknown error"),
-                "gateway": result.get("gateway", gateway.upper())
-            }
-
-            # --- Bot notification ---
-            if res_data["status"].lower() == "approved":
-                send_card_to_user_bot(session['user_id'], {
+                res_data = {
                     "card": card_data,
-                    "status": res_data["status"],
-                    "response": res_data["response"],
-                    "gateway": res_data["gateway"],
-                    "bin": {},  # no bin lookup here
-                    "timestamp": datetime.now().strftime("%H:%M:%S")
-                })
+                    "status": result.get("status", "Error"),
+                    "response": result.get("response", "Unknown error"),
+                    "gateway": result.get("gateway", gateway.upper())
+                }
 
-            # Flush result to client immediately
-            yield f"data: {json.dumps(res_data)}\n\n"
+                # Bot notification
+                if res_data["status"].lower() == "approved":
+                    send_card_to_user_bot(session['user_id'], {
+                        "card": card_data,
+                        "status": res_data["status"],
+                        "response": res_data["response"],
+                        "gateway": res_data["gateway"],
+                        "bin": {},
+                        "timestamp": datetime.now().strftime("%H:%M:%S")
+                    })
+
+                # Yield result
+                yield f"data: {json.dumps(res_data)}\n\n"
+                sys.stdout.flush()
+
+            except Exception as e:
+                error_data = {"status": "Error", "response": str(e), "gateway": gateway.upper()}
+                yield f"data: {json.dumps(error_data)}\n\n"
+                sys.stdout.flush()
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
 
 @app.route('/save_bot', methods=['POST'])
 def save_bot():
