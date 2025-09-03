@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Generate Card - STORM X{% endblock %}
+{% block content %}
+<div class="container py-3">
+  <div class="glass-card p-3">
+    <h4 class="mb-3"><i class="bi bi-layers me-2"></i>Generate Cards</h4>
+    
+    <form method="POST" action="{{ url_for('gen_card') }}">
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label class="form-label small text-muted">BIN (First 6 Digits)</label>
+          <input type="text" class="form-control form-control-sm" name="bin" required 
+                 pattern="[0-9]{6}" placeholder="e.g., 512652" maxlength="6">
+        </div>
+        <div class="col-md-6 mb-3">
+          <label class="form-label small text-muted">Quantity</label>
+          <input type="number" class="form-control form-control-sm" name="quantity" value="10" min="1" max="100">
+        </div>
+      </div>
+      
+      <button type="submit" class="btn btn-primary btn-sm">
+        <i class="bi bi-layers me-1"></i> Generate Cards
+      </button>
+    </form>
+    
+    {% if error %}
+      <div class="alert alert-danger mt-3 py-2 small">
+        <i class="bi bi-exclamation-triangle me-1"></i> {{ error }}
+      </div>
+    {% endif %}
+    
+    {% if cards %}
+      <hr class="my-3">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0">Generated Cards (BIN: {{ bin }})</h5>
+        <button class="btn btn-outline-primary btn-sm" onclick="copyToClipboard()">
+          <i class="bi bi-clipboard me-1"></i> Copy All
+        </button>
+      </div>
+      
+      <div class="table-responsive">
+        <table class="table table-sm table-hover">
+          <thead class="table-light">
+            <tr>
+              <th class="small">#</th>
+              <th class="small">Card Number</th>
+              <th class="small">Expiry</th>
+              <th class="small">CVV</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for card in cards %}
+            {% set parts = card.split('|') %}
+            <tr>
+              <td class="small">{{ loop.index }}</td>
+              <td class="small font-monospace">{{ parts[0] }}</td>
+              <td class="small">{{ parts[1] }}/{{ parts[2] }}</td>
+              <td class="small">{{ parts[3] if parts|length > 3 else 'N/A' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      
+      <div class="mt-2">
+        <small class="text-muted">{{ cards|length }} cards generated</small>
+        {% if cards|length > 10 %}
+          <a href="{{ url_for('gen_card') }}?bin={{ bin }}&quantity={{ cards|length }}&download=true" 
+             class="btn btn-success btn-sm ms-2">
+            <i class="bi bi-download me-1"></i> Download TXT
+          </a>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+.glass-card {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  border: 1px solid rgba(255,255,255,0.2);
+}
+
+body.dark-mode .glass-card {
+  background: rgba(20, 20, 20, 0.9);
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.form-control-sm {
+  font-size: 0.85rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.btn-sm {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.table th, .table td {
+  padding: 0.4rem 0.5rem;
+}
+</style>
+
+<script>
+function copyToClipboard() {
+  const cards = `{{ cards|join('\n') }}`;
+  navigator.clipboard.writeText(cards).then(() => {
+    alert('Cards copied to clipboard!');
+  }).catch(err => {
+    console.error('Failed to copy: ', err);
+    alert('Failed to copy to clipboard');
+  });
+}
+
+// Handle download parameter
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.has('download') && urlParams.get('download') === 'true') {
+  const bin = urlParams.get('bin');
+  const quantity = urlParams.get('quantity');
+  window.location.href = `/gen_card?bin=${bin}&quantity=${quantity}&download=true`;
+}
+</script>
+{% endblock %}
