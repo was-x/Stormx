@@ -387,24 +387,33 @@ def check_card_route():
 import concurrent.futures
 import random
 
-def safe_process_card(gateway_func, card_data, timeout=12):
+def safe_process_card(gateway_func, card_data, timeout=15):
     """Run one card check safely in a thread with timeout."""
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(gateway_func, card_data)
-            return future.result(timeout=timeout)
+            result = future.result(timeout=timeout)
+            
+            # Ensure the result has the expected structure
+            if not isinstance(result, dict):
+                return {
+                    "status": "Error",
+                    "response": "Invalid response from gateway",
+                    "gateway": gateway_func.__name__,
+                }
+            
+            return result
+            
     except concurrent.futures.TimeoutError:
         return {
-            "cc": card_data,
-            "response": f"{gateway_func.__name__} timed out",
             "status": "Error",
+            "response": f"Gateway timeout after {timeout}s",
             "gateway": gateway_func.__name__,
         }
     except Exception as e:
         return {
-            "cc": card_data,
-            "response": str(e),
             "status": "Error",
+            "response": f"Gateway error: {str(e)}",
             "gateway": gateway_func.__name__,
         }
 
@@ -424,66 +433,88 @@ def mass_check():
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
     # --- Prepare cards ---
-    card_list = [c.strip() for c in request.args.get("card_list", "").split("\n") if c.strip()]
+    raw_card_list = request.args.get("card_list", "")
+    card_list = [c.strip() for c in raw_card_list.split("\n") if c.strip()]
     card_count = len(card_list)
     gateway = request.args.get("gateway", "au")
 
     # --- Check credits upfront ---
     if user[6] < card_count:
         def error_generate():
-            yield f"data: {json.dumps({'error': 'Insufficient credits'})}\n\n"
+            yield f"data: {json.dumps({'error': f'Insufficient credits. You have {user[6]} but need {card_count}'})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
     # Deduct credits for all cards upfront
     update_user_credits(session["user_id"], -card_count)
-    session["credits"] = max(0, session.get("credits", 0) - card_count)
+    session["credits"] = max(0, user[6] - card_count)
 
     def generate():
-        for card_data in card_list:
-            # Pick gateway safely
-            if gateway == "au":
-                result = safe_process_card(process_card_au, card_data, timeout=12)
-            elif gateway == "chk":
-                result = safe_process_card(check_card, card_data, timeout=12)
-            elif gateway == "vbv":
-                result = safe_process_card(check_vbv_card, card_data, timeout=12)
-            elif gateway == "b3":
-                result = safe_process_card(process_card_b3, card_data, timeout=12)
-            elif gateway == "svb":
-                result = safe_process_card(process_card_svb, card_data, timeout=12)
-            elif gateway == "pp":
-                result = safe_process_card(process_card_pp, card_data, timeout=12)
-            else:
-                result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
+        processed_count = 0
+        for i, card_data in enumerate(card_list):
+            try:
+                # Pick gateway safely
+                if gateway == "au":
+                    result = safe_process_card(process_card_au, card_data, timeout=15)
+                elif gateway == "chk":
+                    result = safe_process_card(check_card, card_data, timeout=15)
+                elif gateway == "vbv":
+                    result = safe_process_card(check_vbv_card, card_data, timeout=15)
+                elif gateway == "b3":
+                    result = safe_process_card(process_card_b3, card_data, timeout=15)
+                elif gateway == "svb":
+                    result = safe_process_card(process_card_svb, card_data, timeout=15)
+                elif gateway == "pp":
+                    result = safe_process_card(process_card_pp, card_data, timeout=15)
+                else:
+                    result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
 
-            res_data = {
-                "card": card_data,
-                "status": result.get("status", "Error"),
-                "response": result.get("response", "Unknown error"),
-                "gateway": result.get("gateway", gateway.upper()),
-            }
+                res_data = {
+                    "card": card_data,
+                    "status": result.get("status", "Error"),
+                    "response": result.get("response", "Unknown error"),
+                    "gateway": result.get("gateway", gateway.upper()),
+                }
 
-            # --- Send approved to user bot ---
-            if res_data["status"].lower() == "approved":
-                send_card_to_user_bot(
-                    session["user_id"],
-                    {
-                        "card": card_data,
-                        "status": res_data["status"],
-                        "response": res_data["response"],
-                        "gateway": res_data["gateway"],
-                        "bin": {},
-                        "timestamp": datetime.now().strftime("%H:%M:%S"),
-                    },
-                )
+                # --- Send approved to user bot ---
+                if res_data["status"].lower() == "approved":
+                    try:
+                        send_card_to_user_bot(
+                            session["user_id"],
+                            {
+                                "card": card_data,
+                                "status": res_data["status"],
+                                "response": res_data["response"],
+                                "gateway": res_data["gateway"],
+                                "bin": {},
+                                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                            },
+                        )
+                    except Exception as bot_error:
+                        print(f"Bot notification failed: {bot_error}")
 
-            yield f"data: {json.dumps(res_data)}\n\n"
+                processed_count += 1
+                yield f"data: {json.dumps(res_data)}\n\n"
 
-            # small random sleep to avoid being blocked
-            time.sleep(random.uniform(0.3, 0.8))
+                # Add a small delay between requests to avoid rate limiting
+                time.sleep(0.5)
+
+            except Exception as e:
+                # Log the error but continue with next card
+                error_data = {
+                    "card": card_data,
+                    "status": "Error",
+                    "response": f"Processing failed: {str(e)}",
+                    "gateway": gateway.upper(),
+                }
+                yield f"data: {json.dumps(error_data)}\n\n"
+                time.sleep(0.5)
+                continue
+
+        # Send completion message
+        yield f"data: {json.dumps({'complete': True, 'processed': processed_count, 'total': card_count})}\n\n"
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
-
+    
 @app.route('/save_bot', methods=['POST'])
 def save_bot():
     if 'user_id' not in session:
