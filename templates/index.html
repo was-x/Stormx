@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}STORM X - Dashboard{% endblock %}
+{% block content %}
+<style>
+.hero-android {
+  background: #0d6efd;
+  color: #fff;
+  border-radius: 20px;
+  padding: 3rem 1.5rem 5rem;
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+  box-shadow: 0 6px 18px rgba(0,0,0,.12);
+}
+.hero-android .title { font-weight: 800; font-size: 2rem; }
+.hero-btn { border-radius: 999px; padding: .6rem 1.4rem; font-weight: 600; }
+.wave { position:absolute; left:0; bottom:-1px; width:100%; }
+
+.quick-links-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:15px; }
+@media (min-width:768px){ .quick-links-grid { grid-template-columns:repeat(4,1fr); } }
+.quick-link {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  padding:1.2rem;
+  border-radius:14px;
+  background:#ffffff;
+  box-shadow:0 6px 18px rgba(0,0,0,.08);
+  text-decoration:none; color:#0d6efd; transition:.2s;
+}
+.quick-link:hover { transform:translateY(-2px); box-shadow:0 10px 24px rgba(0,0,0,.12); }
+.quick-link-icon {
+  width:55px; height:55px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  margin-bottom:10px; font-size:1.4rem; color:#fff;
+}
+.quick-link-name { font-weight:600; font-size:1rem; margin:0; }
+
+.stat-card { border-radius:12px; padding:1.5rem; text-align:center; color:#fff; }
+.stat-card.bg-primary { background:#0d6efd; }
+.stat-card.bg-success { background:#198754; }
+.stat-card.bg-danger  { background:#dc3545; }
+
+/* Dark Mode */
+body.dark-mode .quick-link { background:#1e1e1e; color:#e6edf3; box-shadow:0 6px 18px rgba(0,0,0,.6); }
+body.dark-mode .stat-card.bg-primary { background:#0a58ca; }
+body.dark-mode .stat-card.bg-success { background:#157347; }
+body.dark-mode .stat-card.bg-danger  { background:#bb2d3b; }
+body.dark-mode .hero-android { background:#1f1f1f; color:#fff; box-shadow:0 6px 18px rgba(0,0,0,.6); }
+</style>
+
+<!-- Hero -->
+<section class="hero-android mb-4">
+  <span class="badge bg-light text-dark mb-2 px-2 py-1">Welcome</span>
+  <h1 class="title mb-2">STORM X</h1>
+  <p class="lead mb-3">Multi-Gateway Card Checker</p>
+  <a href="{{ url_for('single_check') }}" class="btn btn-light hero-btn">
+    <i class="bi bi-play-circle-fill me-1"></i> Start Checking
+  </a>
+  <svg class="wave" viewBox="0 0 1440 120" preserveAspectRatio="none">
+    <path fill="rgba(255,255,255,.2)">
+      <animate attributeName="d" dur="10s" repeatCount="indefinite"
+        values="
+        M0,64L80,69.3C160,75,320,85,480,85.3C640,85,800,75,960,69.3C1120,64,1280,64,1360,64L1440,64L1440,120L0,120Z;
+        M0,96L80,80C160,64,320,32,480,21.3C640,11,800,21,960,37.3C1120,53,1280,75,1360,85.3L1440,96L1440,120L0,120Z;
+        M0,64L80,69.3C160,75,320,85,480,85.3C640,85,800,75,960,69.3C1120,64,1280,64,1360,64L1440,64L1440,120L0,120Z
+        " />
+    </path>
+  </svg>
+</section>
+
+<!-- Quick Links -->
+<section class="mb-4">
+  <h2 class="fw-bold mb-3">Quick Actions</h2>
+  <div class="quick-links-grid">
+    <a href="{{ url_for('single_check') }}" class="quick-link">
+      <div class="quick-link-icon bg-primary"><i class="bi bi-credit-card"></i></div>
+      <p class="quick-link-name">Single Check</p>
+    </a>
+    <a href="{{ url_for('mass_check_page') }}" class="quick-link">
+      <div class="quick-link-icon bg-warning"><i class="bi bi-collection"></i></div>
+      <p class="quick-link-name">Mass Check</p>
+    </a>
+    <a href="{{ url_for('gen_card') }}" class="quick-link">
+      <div class="quick-link-icon bg-info"><i class="bi bi-layers"></i></div>
+      <p class="quick-link-name">Gen Card</p>
+    </a>
+    <a href="{{ url_for('bin_info') }}" class="quick-link">
+      <div class="quick-link-icon bg-success"><i class="bi bi-info-circle"></i></div>
+      <p class="quick-link-name">BIN Info</p>
+    </a>
+  </div>
+</section>
+
+<!-- Stats -->
+<section class="mb-4">
+  <h2 class="fw-bold mb-3">Statistics</h2>
+  <div class="row">
+    <div class="col-md-4 mb-3">
+      <div class="stat-card bg-primary">
+        <h5>Total Checks</h5>
+        <h2 id="totalChecks">0</h2>
+      </div>
+    </div>
+    <div class="col-md-4 mb-3">
+      <div class="stat-card bg-success">
+        <h5>Approved</h5>
+        <h2 id="approvedCount">0</h2>
+      </div>
+    </div>
+    <div class="col-md-4 mb-3">
+      <div class="stat-card bg-danger">
+        <h5>Declined</h5>
+        <h2 id="declinedCount">0</h2>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+async function loadStats() {
+  try {
+    const response = await fetch('/get_results');
+    const data = await response.json();
+
+    const results = data.results || [];
+    const totalChecks = results.length;
+    const approvedCount = results.filter(r => r.status && r.status.toLowerCase() === 'approved').length;
+    const declinedCount = totalChecks - approvedCount;
+
+    document.getElementById('totalChecks').textContent = totalChecks;
+    document.getElementById('approvedCount').textContent = approvedCount;
+    document.getElementById('declinedCount').textContent = declinedCount;
+  } catch (err) {
+    console.error('Failed to load stats:', err);
+  }
+}
+
+// Load stats on page load
+document.addEventListener('DOMContentLoaded', loadStats);
+</script>
+{% endblock %}
