@@ -3,8 +3,27 @@ from fake_useragent import UserAgent
 import re
 import uuid
 import time
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+# Create a session with retry capabilities
+def create_session():
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=2,
+        backoff_factor=0.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=10, pool_maxsize=10)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
 
 def process_card_au(ccx):
+    session = create_session()
     ccx = ccx.strip()
     try:
         n, mm, yy, cvc = ccx.split("|")
