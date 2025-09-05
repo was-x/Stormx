@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% block title %}STORM X - Shopify Check{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="glass-card p-4 mb-4">
+        <div class="text-center mb-4">
+            <h3 class="fw-bold"><i class="bi bi-cart me-2"></i> Shopify Card Checker</h3>
+            <p class="text-muted">Check cards against multiple Shopify sites with proxies</p>
+        </div>
+
+        <form id="shopifyForm">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label for="sites" class="form-label fw-semibold">Shopify Sites (one per line)</label>
+                    <textarea class="form-control" id="sites" name="sites" rows="8" 
+                              placeholder="https://example-store.com" required></textarea>
+                </div>
+                
+                <div class="col-md-4 mb-3">
+                    <label for="proxies" class="form-label fw-semibold">Proxies (optional, one per line)</label>
+                    <textarea class="form-control" id="proxies" name="proxies" rows="8" 
+                              placeholder="ip:port:username:password&#10;or&#10;ip:port"></textarea>
+                    <div class="form-text">Format: ip:port or ip:port:user:pass</div>
+                </div>
+                
+                <div class="col-md-4 mb-3">
+                    <label for="cards" class="form-label fw-semibold">Cards (one per line)</label>
+                    <textarea class="form-control" id="cards" name="cards" rows="8" 
+                              placeholder="NUMBER|MM|YY|CVV" required></textarea>
+                    <div class="form-text">Format: Card Number|Exp Month|Exp Year|CVV</div>
+                </div>
+            </div>
+            
+            <div class="d-grid">
+                <button type="submit" class="btn btn-primary btn-lg" id="checkButton">
+                    <i class="bi bi-play-circle"></i> Start Checking
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="glass-card p-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="fw-bold mb-0"><i class="bi bi-list-check"></i> Results</h4>
+            <div>
+                <span class="badge bg-info me-2">Hits: <span id="hitsCount">0</span></span>
+                <span class="badge bg-success me-2">Approved: <span id="approvedCount">0</span></span>
+                <span class="badge bg-danger me-2">Declined: <span id="declinedCount">0</span></span>
+                <span class="badge bg-warning text-dark">Errors: <span id="errorCount">0</span></span>
+            </div>
+        </div>
+        
+        <div id="resultsContainer" style="max-height: 500px; overflow-y: auto;">
+            <div class="text-center text-muted py-5" id="emptyState">
+                <i class="bi bi-inbox display-4 d-block mb-2"></i>
+                <p>No results yet. Start checking to see results here.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<style>
+    .result-card {
+        border-left: 4px solid #6c757d;
+        margin-bottom: 12px;
+        transition: all 0.3s ease;
+        border-radius: 8px;
+        padding: 15px;
+    }
+    .result-card.hit {
+        border-left-color: #17a2b8;
+        background-color: rgba(23, 162, 184, 0.05);
+    }
+    .result-card.approved {
+        border-left-color: #198754;
+        background-color: rgba(25, 135, 84, 0.05);
+    }
+    .result-card.declined {
+        border-left-color: #dc3545;
+        background-color: rgba(220, 53, 69, 0.05);
+    }
+    .result-card.otp {
+        border-left-color: #fd7e14;
+        background-color: rgba(253, 126, 20, 0.05);
+    }
+    .result-card.expired {
+        border-left-color: #6c757d;
+        background-color: rgba(108, 117, 125, 0.05);
+    }
+    .result-card.error {
+        border-left-color: #ffc107;
+        background-color: rgba(255, 193, 7, 0.05);
+    }
+    .card-number {
+        font-family: monospace;
+        font-size: 0.9rem;
+    }
+    .site-url {
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .result-details {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 8px;
+        font-size: 0.85rem;
+    }
+    .result-label {
+        font-weight: 600;
+        color: #6c757d;
+    }
+    .result-value {
+        word-break: break-all;
+    }
+    .status-badge {
+        font-size: 0.75rem;
+        padding: 0.35em 0.65em;
+    }
+    body.dark-mode .result-label {
+        color: #a0aec0;
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('shopifyForm');
+    const resultsContainer = document.getElementById('resultsContainer');
+    const emptyState = document.getElementById('emptyState');
+    const checkButton = document.getElementById('checkButton');
+    
+    let hits = 0, approved = 0, declined = 0, errors = 0;
+    let eventSource = null;
+    
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const sites = document.getElementById('sites').value.trim();
+        const proxies = document.getElementById('proxies').value.trim();
+        const cards = document.getElementById('cards').value.trim();
+        
+        if (!sites || !cards) {
+            alert('Please provide at least one site and one card');
+            return;
+        }
+        
+        // Reset counters
+        hits = approved = declined = errors = 0;
+        updateCounters();
+        
+        // Clear previous results but keep empty state hidden
+        resultsContainer.innerHTML = '';
+        emptyState.classList.add('d-none');
+        
+        // Disable button and show loading state
+        checkButton.disabled = true;
+        checkButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
+        
+        // Set up Server-Sent Events connection
+        if (eventSource) eventSource.close();
+        
+        // Create URL with query parameters
+        const params = new URLSearchParams();
+        params.append('sites', sites);
+        params.append('proxies', proxies);
+        params.append('cards', cards);
+        
+        eventSource = new EventSource('/shopify_check?' + params.toString());
+        
+        eventSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            
+            if (data.complete) {
+                // Check complete
+                checkButton.disabled = false;
+                checkButton.innerHTML = '<i class="bi bi-play-circle"></i> Start Checking';
+                eventSource.close();
+                
+                // Show completion message
+                const completeEl = document.createElement('div');
+                completeEl.className = 'alert alert-info mt-3';
+                completeEl.innerHTML = `<i class="bi bi-check-circle"></i> Check completed! Processed ${hits + approved + declined + errors} cards.`;
+                resultsContainer.prepend(completeEl);
+                return;
+            }
+            
+            // Determine the status based on response content
+            let status = data.status;
+            let statusClass = status.toLowerCase();
+            
+            // Override status based on response content for Shopify
+            const responseUpper = data.response.toUpperCase();
+            if (responseUpper.includes('THANK YOU') || responseUpper.includes('INSUFFICIENT')) {
+                status = 'HIT';
+                statusClass = 'hit';
+                hits++;
+            } else if (responseUpper.includes('3D') || responseUpper.includes('OTP') || 
+                      responseUpper.includes('INCORRECT') || responseUpper.includes('CVV') ||
+                      responseUpper.includes('ZIP')) {
+                status = 'APPROVED';
+                statusClass = 'approved';
+                approved++;
+            } else if (responseUpper.includes('DECLINED') || responseUpper.includes('FAILED') ||
+                      responseUpper.includes('ERROR') || responseUpper.includes('INVALID')) {
+                status = 'DECLINED';
+                statusClass = 'declined';
+                declined++;
+            } else if (responseUpper.includes('EXPIRED')) {
+                status = 'EXPIRED';
+                statusClass = 'expired';
+                declined++;
+            } else {
+                // Default to error for unknown responses
+                status = 'ERROR';
+                statusClass = 'error';
+                errors++;
+            }
+            
+            updateCounters();
+            
+            // Create result card
+            const resultEl = document.createElement('div');
+            resultEl.className = `result-card ${statusClass}`;
+            
+            resultEl.innerHTML = `
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <h6 class="mb-1 card-number">${data.card}</h6>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="badge ${getStatusBadgeClass(status)} status-badge me-2">${status}</span>
+                            <small class="text-muted">${new Date().toLocaleTimeString()}</small>
+                        </div>
+                    </div>
+                    <div class="text-end">
+                        <div class="fw-bold text-success">$${data.amount}</div>
+                    </div>
+                </div>
+                
+                <div class="result-details">
+                    <span class="result-label">Gateway:</span>
+                    <span class="result-value">${data.gateway}</span>
+                    
+                    <span class="result-label">Amount:</span>
+                    <span class="result-value">$${data.amount}</span>
+                    
+                    <span class="result-label">Site:</span>
+                    <span class="result-value site-url" title="${data.site}">${data.site}</span>
+                    
+                    <span class="result-label">Proxy:</span>
+                    <span class="result-value" title="${data.proxy}">${data.proxy || 'None'}</span>
+                    
+                    <span class="result-label">Response:</span>
+                    <span class="result-value">${data.response}</span>
+                </div>
+            `;
+            
+            // Add to top of results
+            resultsContainer.prepend(resultEl);
+        };
+        
+        eventSource.onerror = function() {
+            checkButton.disabled = false;
+            checkButton.innerHTML = '<i class="bi bi-play-circle"></i> Start Checking';
+            if (eventSource) eventSource.close();
+            
+            // Show error message
+            const errorEl = document.createElement('div');
+            errorEl.className = 'alert alert-danger mt-3';
+            errorEl.innerHTML = `<i class="bi bi-exclamation-triangle"></i> Connection error. Please try again.`;
+            resultsContainer.prepend(errorEl);
+        };
+    });
+    
+    function updateCounters() {
+        document.getElementById('hitsCount').textContent = hits;
+        document.getElementById('approvedCount').textContent = approved;
+        document.getElementById('declinedCount').textContent = declined;
+        document.getElementById('errorCount').textContent = errors;
+    }
+    
+    function getStatusBadgeClass(status) {
+        switch(status) {
+            case 'HIT': return 'bg-info';
+            case 'APPROVED': return 'bg-success';
+            case 'DECLINED': return 'bg-danger';
+            case 'EXPIRED': return 'bg-secondary';
+            case 'OTP': return 'bg-warning text-dark';
+            default: return 'bg-dark';
+        }
+    }
+    
+    // Close connection when leaving the page
+    window.addEventListener('beforeunload', function() {
+        if (eventSource) eventSource.close();
+    });
+});
+</script>
+{% endblock %}
