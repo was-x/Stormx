@@ -3,6 +3,7 @@ fake_useragent
 bs4
 flask
 httpx
+pandas
 requests_toolbelt
 psutil
 stripe
