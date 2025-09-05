@@ -17,7 +17,7 @@
 .wave { position:absolute; left:0; bottom:-1px; width:100%; }
 
 .quick-links-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:15px; }
-@media (min-width:768px){ .quick-links-grid { grid-template-columns:repeat(4,1fr); } }
+@media (min-width:768px){ .quick-links-grid { grid-template-columns:repeat(5,1fr); } }
 .quick-link {
   display:flex; flex-direction:column; align-items:center; justify-content:center;
   padding:1.2rem;
@@ -32,12 +32,15 @@
   display:flex; align-items:center; justify-content:center;
   margin-bottom:10px; font-size:1.4rem; color:#fff;
 }
-.quick-link-name { font-weight:600; font-size:1rem; margin:0; }
+.quick-link-name { font-weight:600; font-size:1rem; margin:0; text-align:center; }
 
 .stat-card { border-radius:12px; padding:1.5rem; text-align:center; color:#fff; }
 .stat-card.bg-primary { background:#0d6efd; }
 .stat-card.bg-success { background:#198754; }
 .stat-card.bg-danger  { background:#dc3545; }
+
+/* Quick link colors */
+.bg-purple { background: #6f42c1 !important; }
 
 /* Dark Mode */
 body.dark-mode .quick-link { background:#1e1e1e; color:#e6edf3; box-shadow:0 6px 18px rgba(0,0,0,.6); }
@@ -79,11 +82,15 @@ body.dark-mode .hero-android { background:#1f1f1f; color:#fff; box-shadow:0 6px 
       <div class="quick-link-icon bg-warning"><i class="bi bi-collection"></i></div>
       <p class="quick-link-name">Mass Check</p>
     </a>
+    <a href="{{ url_for('shopify_check') }}" class="quick-link">
+      <div class="quick-link-icon bg-purple"><i class="bi bi-cart"></i></div>
+      <p class="quick-link-name">Shopify Check</p>
+    </a>
     <a href="{{ url_for('gen_card') }}" class="quick-link">
       <div class="quick-link-icon bg-info"><i class="bi bi-layers"></i></div>
       <p class="quick-link-name">Gen Card</p>
     </a>
-    <a href="{{ url_for('bin_info') }}" class="quick-link">
+    <a href="{{ url_for('bin_info_page') }}" class="quick-link">
       <div class="quick-link-icon bg-success"><i class="bi bi-info-circle"></i></div>
       <p class="quick-link-name">BIN Info</p>
     </a>
