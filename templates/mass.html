@@ -1,177 +1,284 @@
+{% extends "base.html" %}
+{% block title %}STORM X - Mass Check{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="glass-card p-4 mb-4">
+        <div class="text-center mb-4">
+            <h3 class="fw-bold"><i class="bi bi-collection me-2"></i> Mass Card Checker</h3>
+            <p class="text-muted">Check multiple cards with selected gateway</p>
+        </div>
+
+        <form id="massCardForm">
+            <div class="row">
+                <div class="col-md-8 mb-3">
+                    <label for="card_list" class="form-label fw-semibold">Card List (one per line)</label>
+                    <textarea class="form-control" id="card_list" name="card_list" rows="10" 
+                              placeholder="NUMBER|MM|YY|CVV" required></textarea>
+                    <div class="form-text">Format: Card Number|Exp Month|Exp Year|CVV</div>
+                </div>
+                
+                <div class="col-md-4 mb-3">
+                    <div class="mb-3">
+                        <label for="gateway" class="form-label fw-semibold">Gateway</label>
+                        <select class="form-select" id="gateway" name="gateway">
+                            <option value="au">Stripe Auth 1</option>
+                            <option value="chk">Stripe Auth 2</option>
+                            <option value="vbv">3DS Lookup</option>
+                            <option value="b3">Braintree Auth</option>
+                            <option value="svb">3DS Site based</option>
+                            <option value="pp">Paypal [2$]</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="card_file" class="form-label fw-semibold">Upload Card File</label>
+                        <input type="file" class="form-control" id="card_file" accept=".txt,.csv">
+                        <div class="form-text">Upload a text file with one card per line</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="d-grid">
+                <button type="submit" class="btn btn-primary btn-lg" id="massCheckButton">
+                    <i class="bi bi-play-circle"></i> Start Mass Check
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="glass-card p-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="fw-bold mb-0"><i class="bi bi-list-check"></i> Results</h4>
+            <div>
+                <span class="badge bg-success me-2">Approved: <span id="approvedCount">0</span></span>
+                <span class="badge bg-danger me-2">Declined: <span id="declinedCount">0</span></span>
+                <span class="badge bg-warning text-dark">Errors: <span id="errorCount">0</span></span>
+            </div>
+        </div>
+        
+        <div id="massResults" style="max-height: 500px; overflow-y: auto;">
+            <div class="text-center text-muted py-5" id="emptyState">
+                <i class="bi bi-inbox display-4 d-block mb-2"></i>
+                <p>No results yet. Start checking to see results here.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<style>
+    .result-card {
+        border-left: 4px solid #6c757d;
+        margin-bottom: 12px;
+        transition: all 0.3s ease;
+        border-radius: 8px;
+        padding: 15px;
+    }
+    .result-card.approved {
+        border-left-color: #198754;
+        background-color: rgba(25, 135, 84, 0.05);
+    }
+    .result-card.declined {
+        border-left-color: #dc3545;
+        background-color: rgba(220, 53, 69, 0.05);
+    }
+    .result-card.error {
+        border-left-color: #ffc107;
+        background-color: rgba(255, 193, 7, 0.05);
+    }
+    .card-number {
+        font-family: monospace;
+        font-size: 0.9rem;
+    }
+    .result-details {
+        display: grid;
+        grid-template-columns: 100px 1fr;
+        gap: 8px;
+        font-size: 0.85rem;
+    }
+    .result-label {
+        font-weight: 600;
+        color: #6c757d;
+    }
+    .result-value {
+        word-break: break-all;
+    }
+    .status-badge {
+        font-size: 0.75rem;
+        padding: 0.35em 0.65em;
+    }
+    body.dark-mode .result-label {
+        color: #a0aec0;
+    }
+    .gateway-badge {
+        background: linear-gradient(45deg, #6f42c1, #6610f2);
+    }
+</style>
+
 <script>
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function() {
     const massForm = document.getElementById('massCardForm');
-    const resultsDiv = document.getElementById('massResults');
+    const resultsContainer = document.getElementById('massResults');
+    const emptyState = document.getElementById('emptyState');
     const fileInput = document.getElementById('card_file');
     const textArea = document.getElementById('card_list');
-    const btn = document.getElementById('massCheckButton');
-
-    // Verify required elements exist
-    if (!massForm || !resultsDiv || !fileInput || !textArea || !btn) {
-        console.error("❌ Missing required HTML elements. Check your IDs in HTML.");
-        return;
-    }
-
-    let currentCardList = textArea.value;
-
+    const checkButton = document.getElementById('massCheckButton');
+    
+    let approved = 0, declined = 0, errors = 0;
+    let eventSource = null;
+    
     // Handle file upload
-    fileInput.addEventListener('change', function () {
+    fileInput.addEventListener('change', function() {
         if (this.files.length > 0) {
             const reader = new FileReader();
-            reader.onload = function (event) {
+            reader.onload = function(event) {
                 textArea.value = event.target.result;
-                currentCardList = event.target.result;
             };
             reader.readAsText(this.files[0]);
         }
     });
-
-    // Track textarea input
-    textArea.addEventListener('input', () => currentCardList = textArea.value);
-
-    // Handle form submit
-    massForm.addEventListener('submit', function (e) {
+    
+    massForm.addEventListener('submit', function(e) {
         e.preventDefault();
-        const gateway = document.getElementById('gateway')?.value || "";
-        const cardList = currentCardList.trim();
-
+        
+        const gateway = document.getElementById('gateway').value;
+        const cardList = textArea.value.trim();
+        
         if (!cardList) {
             alert('Please enter card list or upload a file');
             return;
         }
-
-        startMassCheck(gateway, cardList);
-    });
-
-    // Helper to prepend elements (safe for all browsers)
-    function safePrepend(parent, el) {
-        parent.insertBefore(el, parent.firstChild);
-    }
-
-    async function startMassCheck(gateway, cardList) {
-        resultsDiv.innerHTML = '';
-        let approved = 0, declined = 0, errors = 0;
-
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
-
-        const gatewayInfo = document.createElement('div');
-        gatewayInfo.className = "alert alert-info mb-3";
-        gatewayInfo.innerHTML = `<i class="bi bi-info-circle"></i> Using gateway: ${gateway.toUpperCase()}`;
-        safePrepend(resultsDiv, gatewayInfo);
-
-        try {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
-
-            const response = await fetch("/mass_check", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ gateway, card_list: cardList }),
-                signal: controller.signal
-            });
-
-            clearTimeout(timeout);
-
-            if (!response.ok) throw new Error(`Server returned ${response.status}`);
+        
+        // Reset counters
+        approved = declined = errors = 0;
+        updateCounters();
+        
+        // Clear previous results but keep empty state hidden
+        resultsContainer.innerHTML = '';
+        emptyState.classList.add('d-none');
+        
+        // Disable button and show loading state
+        checkButton.disabled = true;
+        checkButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
+        
+        // Set up Server-Sent Events connection
+        if (eventSource) eventSource.close();
+        
+        // Create URL with query parameters
+        const params = new URLSearchParams();
+        params.append('gateway', gateway);
+        params.append('card_list', cardList);
+        
+        eventSource = new EventSource('/mass_check?' + params.toString());
+        
+        eventSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
             
-            // Expect server to return NDJSON (one JSON per line)
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-
-                let lines = buffer.split("\n");
-                buffer = lines.pop(); // Keep last incomplete line
-
-                for (let line of lines) {
-                    if (!line.trim()) continue;
-                    try {
-                        const res = JSON.parse(line);
-                        if (res.complete) {
-                            showCompleteBox(res);
-                            continue;
-                        }
-                        if (res.card && res.status) {
-                            if (res.status === "Approved") approved++;
-                            else if (res.status === "Declined") declined++;
-                            else errors++;
-                            showResultBox(res);
-                        }
-                        updateCounts();
-                    } catch (err) {
-                        console.error("JSON parse error:", err);
-                    }
-                }
+            if (data.complete) {
+                // Check complete
+                checkButton.disabled = false;
+                checkButton.innerHTML = '<i class="bi bi-play-circle"></i> Start Mass Check';
+                eventSource.close();
+                
+                // Show completion message
+                const completeEl = document.createElement('div');
+                completeEl.className = 'alert alert-info mt-3';
+                completeEl.innerHTML = `<i class="bi bi-check-circle"></i> Check completed! Processed ${approved + declined + errors} cards.`;
+                resultsContainer.prepend(completeEl);
+                return;
             }
-
-            if (buffer.trim()) {
-                try {
-                    const res = JSON.parse(buffer);
-                    if (res.complete) showCompleteBox(res);
-                    else showResultBox(res);
-                } catch (err) {
-                    console.error("JSON parse error at end:", err);
-                }
+            
+            // Update counters based on status
+            if (data.status === 'Approved') {
+                approved++;
+            } else if (data.status === 'Declined') {
+                declined++;
+            } else {
+                errors++;
             }
-
-        } catch (err) {
-            console.error("Mass check failed:", err);
-            const errorBox = document.createElement('div');
-            errorBox.className = "result-box result-error";
-            errorBox.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h5 class="fw-bold"><i class="bi bi-exclamation-triangle"></i> Error</h5>
-                    <span class="badge bg-danger">Failed</span>
+            
+            updateCounters();
+            
+            // Create result card
+            const resultEl = document.createElement('div');
+            resultEl.className = `result-card ${data.status.toLowerCase()}`;
+            
+            resultEl.innerHTML = `
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <h6 class="mb-1 card-number">${data.card}</h6>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="badge ${getStatusBadgeClass(data.status)} status-badge me-2">${data.status}</span>
+                            <span class="badge gateway-badge status-badge me-2">${data.gateway}</span>
+                            <small class="text-muted">${new Date().toLocaleTimeString()}</small>
+                        </div>
+                    </div>
                 </div>
-                <p class="mb-0">Unable to connect or process. Please try again later.</p>
-            `;
-            safePrepend(resultsDiv, errorBox);
-        }
-
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Start Mass Check';
-
-        function updateCounts() {
-            document.getElementById('approvedCount').textContent = approved;
-            document.getElementById('declinedCount').textContent = declined;
-            document.getElementById('errorCount').textContent = errors;
-        }
-
-        function showResultBox(res) {
-            const box = document.createElement('div');
-            box.className = "result-box " +
-                (res.status === "Approved" ? "result-approved" :
-                 res.status === "Declined" ? "result-declined" : "result-error");
-
-            box.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h5 class="fw-bold"><i class="bi bi-shield-lock"></i> Result</h5>
-                    <span class="badge ${res.status === 'Approved' ? 'bg-success' : res.status === 'Declined' ? 'bg-danger' : 'bg-warning text-dark'}">${res.status}</span>
+                
+                <div class="result-details">
+                    <span class="result-label">Response:</span>
+                    <span class="result-value">${data.response}</span>
+                    
+                    <span class="result-label">Gateway:</span>
+                    <span class="result-value">${data.gateway}</span>
+                    
+                    <span class="result-label">Status:</span>
+                    <span class="result-value">${data.status}</span>
+                    
+                    ${data.bin && data.bin.bank ? `
+                        <span class="result-label">Bank:</span>
+                        <span class="result-value">${data.bin.bank}</span>
+                    ` : ''}
+                    
+                    ${data.bin && data.bin.country ? `
+                        <span class="result-label">Country:</span>
+                        <span class="result-value">${data.bin.country}</span>
+                    ` : ''}
+                    
+                    ${data.bin && data.bin.type ? `
+                        <span class="result-label">Type:</span>
+                        <span class="result-value">${data.bin.type}</span>
+                    ` : ''}
                 </div>
-                <p class="mb-1"><i class="bi bi-credit-card-2-front"></i> <strong>Card:</strong> ${res.card}</p>
-                <p class="mb-1"><i class="bi bi-chat-dots"></i> <strong>Response:</strong> ${res.response}</p>
-                <p class="mb-0"><i class="bi bi-hdd-network"></i> <strong>Gateway:</strong> ${res.gateway}</p>
             `;
-            safePrepend(resultsDiv, box);
-        }
-
-        function showCompleteBox(res) {
-            const completeBox = document.createElement('div');
-            completeBox.className = "result-box bg-success text-white";
-            completeBox.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h5 class="fw-bold"><i class="bi bi-check-circle"></i> Complete</h5>
-                    <span class="badge bg-light text-dark">${res.successful}/${res.processed} Successful</span>
-                </div>
-                <p class="mb-0">Processed ${res.processed} of ${res.total} cards</p>
-            `;
-            safePrepend(resultsDiv, completeBox);
+            
+            // Add to top of results
+            resultsContainer.prepend(resultEl);
+        };
+        
+        eventSource.onerror = function() {
+            checkButton.disabled = false;
+            checkButton.innerHTML = '<i class="bi bi-play-circle"></i> Start Mass Check';
+            if (eventSource) eventSource.close();
+            
+            // Show error message
+            const errorEl = document.createElement('div');
+            errorEl.className = 'alert alert-danger mt-3';
+            errorEl.innerHTML = `<i class="bi bi-exclamation-triangle"></i> Connection error. Please try again.`;
+            resultsContainer.prepend(errorEl);
+        };
+    });
+    
+    function updateCounters() {
+        document.getElementById('approvedCount').textContent = approved;
+        document.getElementById('declinedCount').textContent = declined;
+        document.getElementById('errorCount').textContent = errors;
+    }
+    
+    function getStatusBadgeClass(status) {
+        switch(status.toLowerCase()) {
+            case 'approved': return 'bg-success';
+            case 'declined': return 'bg-danger';
+            default: return 'bg-warning text-dark';
         }
     }
+    
+    // Close connection when leaving the page
+    window.addEventListener('beforeunload', function() {
+        if (eventSource) eventSource.close();
+    });
 });
 </script>
+{% endblock %}
