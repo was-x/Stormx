@@ -2,123 +2,147 @@
 {% block title %}STORM X - Dashboard{% endblock %}
 {% block content %}
 <style>
-.hero-android {
-  background: #0d6efd;
-  color: #fff;
-  border-radius: 20px;
-  padding: 3rem 1.5rem 5rem;
+/* Hero Section */
+.hero {
   position: relative;
-  overflow: hidden;
+  padding: 6rem 1rem 8rem;
   text-align: center;
-  box-shadow: 0 6px 18px rgba(0,0,0,.12);
+  background: linear-gradient(135deg,#0d6efd,#6f42c1);
+  border-radius: 24px;
+  overflow: hidden;
+  color: #fff;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.25);
 }
-.hero-android .title { font-weight: 800; font-size: 2rem; }
-.hero-btn { border-radius: 999px; padding: .6rem 1.4rem; font-weight: 600; }
-.wave { position:absolute; left:0; bottom:-1px; width:100%; }
+.hero h1 { font-weight: 900; font-size: 2.6rem; letter-spacing: -1px; }
+.hero p { font-size: 1.1rem; opacity: 0.9; }
+.hero .btn {
+  border-radius: 999px;
+  padding: .75rem 1.6rem;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgba(255,255,255,0.25);
+  transition: transform 0.3s ease;
+}
+.hero .btn:hover { transform: scale(1.05); }
 
-.quick-links-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:15px; }
-@media (min-width:768px){ .quick-links-grid { grid-template-columns:repeat(5,1fr); } }
+/* Hero Wave Effect */
+.hero::after {
+  content: "";
+  position: absolute; bottom: -1px; left: 0;
+  width: 100%; height: 120px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 120'%3E%3Cpath fill='rgba(255,255,255,.2)' d='M0,64L80,69.3C160,75,320,85,480,85.3C640,85,800,75,960,69.3C1120,64,1280,64,1360,64L1440,64L1440,120L0,120Z'/%3E%3C/svg%3E") no-repeat center;
+  background-size: cover;
+}
+
+/* Quick Links Grid */
+.quick-links-grid {
+  display:grid; gap:20px;
+  grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+}
 .quick-link {
-  display:flex; flex-direction:column; align-items:center; justify-content:center;
-  padding:1.2rem;
-  border-radius:14px;
-  background:#ffffff;
-  box-shadow:0 6px 18px rgba(0,0,0,.08);
-  text-decoration:none; color:#0d6efd; transition:.2s;
+  background: var(--glass-bg);
+  backdrop-filter: blur(14px);
+  border-radius: 18px;
+  padding:1.5rem;
+  text-align:center;
+  color:#fff;
+  text-decoration:none;
+  box-shadow:0 10px 28px rgba(0,0,0,0.25);
+  transition:transform 0.4s ease, box-shadow 0.4s ease;
 }
-.quick-link:hover { transform:translateY(-2px); box-shadow:0 10px 24px rgba(0,0,0,.12); }
+.quick-link:hover {
+  transform:scale(1.08) rotate(-1deg);
+  box-shadow:0 18px 40px rgba(0,140,255,0.6);
+}
 .quick-link-icon {
-  width:55px; height:55px; border-radius:50%;
-  display:flex; align-items:center; justify-content:center;
-  margin-bottom:10px; font-size:1.4rem; color:#fff;
+  font-size:2rem;
+  margin-bottom:10px;
+  display:inline-block;
+  background: var(--brand-gradient);
+  -webkit-background-clip:text;
+  -webkit-text-fill-color: transparent;
 }
-.quick-link-name { font-weight:600; font-size:1rem; margin:0; text-align:center; }
+.quick-link-name { font-weight:600; font-size:1rem; margin:0; }
 
-.stat-card { border-radius:12px; padding:1.5rem; text-align:center; color:#fff; }
-.stat-card.bg-primary { background:#0d6efd; }
-.stat-card.bg-success { background:#198754; }
-.stat-card.bg-danger  { background:#dc3545; }
+/* Stats Section */
+.stat-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  border-radius: 20px;
+  padding:2.5rem 1rem;
+  text-align:center;
+  color:#fff;
+  box-shadow:0 10px 28px rgba(0,0,0,0.25);
+  transition: transform 0.3s ease;
+}
+.stat-card:hover { transform: translateY(-6px) scale(1.02); }
+.stat-card h5 { font-weight:600; font-size:1.1rem; margin-bottom:1rem; }
+.stat-card h2 { font-weight:900; font-size:2.4rem; }
 
-/* Quick link colors */
-.bg-purple { background: #6f42c1 !important; }
-
-/* Dark Mode */
-body.dark-mode .quick-link { background:#1e1e1e; color:#e6edf3; box-shadow:0 6px 18px rgba(0,0,0,.6); }
-body.dark-mode .stat-card.bg-primary { background:#0a58ca; }
-body.dark-mode .stat-card.bg-success { background:#157347; }
-body.dark-mode .stat-card.bg-danger  { background:#bb2d3b; }
-body.dark-mode .hero-android { background:#1f1f1f; color:#fff; box-shadow:0 6px 18px rgba(0,0,0,.6); }
+/* Dark Mode Adjustments */
+body.dark-mode .quick-link { background:#1e1e1e; }
+body.dark-mode .stat-card { background:#1e1e1e; }
+body.dark-mode .hero { background:#1f1f1f; }
 </style>
 
 <!-- Hero -->
-<section class="hero-android mb-4">
-  <span class="badge bg-light text-dark mb-2 px-2 py-1">Welcome</span>
-  <h1 class="title mb-2">STORM X</h1>
-  <p class="lead mb-3">Multi-Gateway Card Checker</p>
-  <a href="{{ url_for('single_check') }}" class="btn btn-light hero-btn">
+<section class="hero mb-5">
+  <span class="badge bg-light text-dark mb-2 px-3 py-1 rounded-pill shadow-sm">Welcome</span>
+  <h1 class="mb-2">⚡ STORM X</h1>
+  <p class="lead mb-3">Multi-Gateway Card Checker with Real-Time Insights</p>
+  <a href="{{ url_for('single_check') }}" class="btn btn-light btn-lg mt-3 rounded-pill">
     <i class="bi bi-play-circle-fill me-1"></i> Start Checking
   </a>
-  <svg class="wave" viewBox="0 0 1440 120" preserveAspectRatio="none">
-    <path fill="rgba(255,255,255,.2)">
-      <animate attributeName="d" dur="10s" repeatCount="indefinite"
-        values="
-        M0,64L80,69.3C160,75,320,85,480,85.3C640,85,800,75,960,69.3C1120,64,1280,64,1360,64L1440,64L1440,120L0,120Z;
-        M0,96L80,80C160,64,320,32,480,21.3C640,11,800,21,960,37.3C1120,53,1280,75,1360,85.3L1440,96L1440,120L0,120Z;
-        M0,64L80,69.3C160,75,320,85,480,85.3C640,85,800,75,960,69.3C1120,64,1280,64,1360,64L1440,64L1440,120L0,120Z
-        " />
-    </path>
-  </svg>
 </section>
 
 <!-- Quick Links -->
-<section class="mb-4">
-  <h2 class="fw-bold mb-3">Quick Actions</h2>
+<section class="mb-5">
+  <h2 class="fw-bold mb-4">Quick Actions</h2>
   <div class="quick-links-grid">
     <a href="{{ url_for('single_check') }}" class="quick-link">
-      <div class="quick-link-icon bg-primary"><i class="bi bi-credit-card"></i></div>
+      <div class="quick-link-icon"><i class="bi bi-credit-card"></i></div>
       <p class="quick-link-name">Single Check</p>
     </a>
     <a href="{{ url_for('mass_check_page') }}" class="quick-link">
-      <div class="quick-link-icon bg-warning"><i class="bi bi-collection"></i></div>
+      <div class="quick-link-icon"><i class="bi bi-collection"></i></div>
       <p class="quick-link-name">Mass Check</p>
     </a>
     <a href="{{ url_for('shopify_check') }}" class="quick-link">
-      <div class="quick-link-icon bg-purple"><i class="bi bi-cart"></i></div>
+      <div class="quick-link-icon"><i class="bi bi-cart"></i></div>
       <p class="quick-link-name">Shopify Check</p>
     </a>
     <a href="{{ url_for('gen_card') }}" class="quick-link">
-      <div class="quick-link-icon bg-info"><i class="bi bi-layers"></i></div>
+      <div class="quick-link-icon"><i class="bi bi-layers"></i></div>
       <p class="quick-link-name">Gen Card</p>
     </a>
     <a href="{{ url_for('fake_address') }}" class="quick-link">
-      <div class="quick-link-icon bg-secondary"><i class="bi bi-geo-alt"></i></div>
+      <div class="quick-link-icon"><i class="bi bi-geo-alt"></i></div>
       <p class="quick-link-name">Fake Address</p>
     </a>
     <a href="{{ url_for('bin_info_page') }}" class="quick-link">
-      <div class="quick-link-icon bg-success"><i class="bi bi-info-circle"></i></div>
+      <div class="quick-link-icon"><i class="bi bi-info-circle"></i></div>
       <p class="quick-link-name">BIN Info</p>
     </a>
   </div>
 </section>
 
 <!-- Stats -->
-<section class="mb-4">
-  <h2 class="fw-bold mb-3">Statistics</h2>
-  <div class="row">
-    <div class="col-md-4 mb-3">
-      <div class="stat-card bg-primary">
+<section>
+  <h2 class="fw-bold mb-4">Statistics</h2>
+  <div class="row g-4">
+    <div class="col-md-4">
+      <div class="stat-card">
         <h5>Total Checks</h5>
         <h2 id="totalChecks">{{ total_checks }}</h2>
       </div>
     </div>
-    <div class="col-md-4 mb-3">
-      <div class="stat-card bg-success">
+    <div class="col-md-4">
+      <div class="stat-card">
         <h5>Approved</h5>
         <h2 id="approvedCount">{{ approved_count }}</h2>
       </div>
     </div>
-    <div class="col-md-4 mb-3">
-      <div class="stat-card bg-danger">
+    <div class="col-md-4">
+      <div class="stat-card">
         <h5>Declined</h5>
         <h2 id="declinedCount">{{ declined_count }}</h2>
       </div>
@@ -127,6 +151,7 @@ body.dark-mode .hero-android { background:#1f1f1f; color:#fff; box-shadow:0 6px 
 </section>
 
 <script>
+// Fetch live stats
 async function loadStats() {
   try {
     const response = await fetch('/get_results');
@@ -137,15 +162,27 @@ async function loadStats() {
     const approvedCount = results.filter(r => r.status && r.status.toLowerCase() === 'approved').length;
     const declinedCount = totalChecks - approvedCount;
 
-    document.getElementById('totalChecks').textContent = totalChecks;
-    document.getElementById('approvedCount').textContent = approvedCount;
-    document.getElementById('declinedCount').textContent = declinedCount;
+    animateValue('totalChecks', 0, totalChecks, 1500);
+    animateValue('approvedCount', 0, approvedCount, 1500);
+    animateValue('declinedCount', 0, declinedCount, 1500);
   } catch (err) {
     console.error('Failed to load stats:', err);
   }
 }
 
-// Load stats on page load
+// Animate numbers
+function animateValue(id, start, end, duration) {
+  const obj = document.getElementById(id);
+  let startTimestamp = null;
+  const step = (ts) => {
+    if (!startTimestamp) startTimestamp = ts;
+    const progress = Math.min((ts - startTimestamp) / duration, 1);
+    obj.textContent = Math.floor(progress * (end - start) + start);
+    if (progress < 1) window.requestAnimationFrame(step);
+  };
+  window.requestAnimationFrame(step);
+}
+
 document.addEventListener('DOMContentLoaded', loadStats);
 </script>
 {% endblock %}
