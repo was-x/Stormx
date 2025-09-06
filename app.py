@@ -862,12 +862,6 @@ def fake_address():
         return redirect(url_for('login'))
     return render_template('fake_address.html', username=session.get('username'), credits=session.get('credits', 0))
 
-@app.route('/fake_address')
-def fake_address():
-    if 'user_id' not in session or 'access_key' not in session:
-        return redirect(url_for('login'))
-    return render_template('fake_address.html', username=session.get('username'), credits=session.get('credits', 0))
-
 @app.route('/generate_address', methods=['POST'])
 def generate_address():
     try:
