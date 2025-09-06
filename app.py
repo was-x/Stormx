@@ -652,11 +652,7 @@ def shopify_check():
     if 'user_id' not in session or 'access_key' not in session:
         return redirect(url_for('login'))
     return render_template('shopify.html', username=session.get('username'), credits=session.get('credits', 0))
-
-not woeking 
-
-this is old route woerking
-
+    
 @app.route('/shopify_check', methods=['GET', 'POST'])
 def shopify_check_process():
     if 'user_id' not in session or 'access_key' not in session:
