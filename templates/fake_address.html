@@ -6,7 +6,7 @@
     <div class="glass-card p-4 mb-4">
         <div class="text-center mb-4">
             <h3 class="fw-bold"><i class="bi bi-geo-alt me-2"></i> Fake Address Generator</h3>
-            <p class="text-muted">Generate realistic fake addresses for testing</p>
+            <p class="text-muted">Generate realistic fake addresses for testing purposes</p>
         </div>
 
         <form id="addressForm">
@@ -20,12 +20,57 @@
                         <option value="au">Australia</option>
                         <option value="de">Germany</option>
                         <option value="fr">France</option>
+                        <option value="es">Spain</option>
+                        <option value="it">Italy</option>
+                        <option value="nl">Netherlands</option>
+                        <option value="br">Brazil</option>
+                        <option value="mx">Mexico</option>
+                        <option value="in">India</option>
+                        <option value="jp">Japan</option>
+                        <option value="cn">China</option>
+                        <option value="ru">Russia</option>
+                        <option value="se">Sweden</option>
+                        <option value="no">Norway</option>
+                        <option value="dk">Denmark</option>
+                        <option value="fi">Finland</option>
+                        <option value="pl">Poland</option>
+                        <option value="tr">Turkey</option>
+                        <option value="za">South Africa</option>
+                        <option value="eg">Egypt</option>
+                        <option value="ng">Nigeria</option>
+                        <option value="ke">Kenya</option>
+                        <option value="ar">Argentina</option>
+                        <option value="cl">Chile</option>
+                        <option value="co">Colombia</option>
+                        <option value="pe">Peru</option>
+                        <option value="ve">Venezuela</option>
+                        <option value="ch">Switzerland</option>
+                        <option value="at">Austria</option>
+                        <option value="be">Belgium</option>
+                        <option value="pt">Portugal</option>
+                        <option value="gr">Greece</option>
+                        <option value="cz">Czech Republic</option>
+                        <option value="hu">Hungary</option>
+                        <option value="ro">Romania</option>
+                        <option value="il">Israel</option>
+                        <option value="sa">Saudi Arabia</option>
+                        <option value="ae">United Arab Emirates</option>
+                        <option value="sg">Singapore</option>
+                        <option value="my">Malaysia</option>
+                        <option value="th">Thailand</option>
+                        <option value="id">Indonesia</option>
+                        <option value="ph">Philippines</option>
+                        <option value="vn">Vietnam</option>
+                        <option value="kr">South Korea</option>
+                        <option value="tw">Taiwan</option>
+                        <option value="hk">Hong Kong</option>
                     </select>
                 </div>
                 
                 <div class="col-md-6 mb-3">
                     <label for="count" class="form-label fw-semibold">Number of Addresses</label>
-                    <input type="number" class="form-control" id="count" name="count" value="5" min="1" max="100">
+                    <input type="number" class="form-control" id="count" name="count" value="1" min="1" max="100">
+                    <div class="form-text">For multiple addresses, they will be downloaded as a text file</div>
                 </div>
             </div>
             
@@ -39,7 +84,10 @@
 
     <div class="glass-card p-4">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4 class="fw-bold mb-0"><i class="bi bi-list-check"></i> Generated Addresses</h4>
+            <h4 class="fw-bold mb-0"><i class="bi bi-list-check"></i> Generated Address</h4>
+            <button class="btn btn-sm btn-outline-secondary" id="copyButton" style="display: none;">
+                <i class="bi bi-clipboard"></i> Copy All
+            </button>
         </div>
         
         <div id="resultsContainer" style="max-height: 500px; overflow-y: auto;">
@@ -60,6 +108,10 @@
         transition: all 0.3s ease;
         border-radius: 8px;
         padding: 15px;
+        background: rgba(255, 255, 255, 0.5);
+    }
+    body.dark-mode .address-card {
+        background: rgba(30, 30, 30, 0.5);
     }
     .address-field {
         display: grid;
@@ -74,9 +126,14 @@
     }
     .address-value {
         word-break: break-all;
+        font-family: monospace;
     }
     body.dark-mode .address-label {
         color: #a0aec0;
+    }
+    .country-flag {
+        font-size: 1.2rem;
+        margin-right: 5px;
     }
 </style>
 
@@ -86,6 +143,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const resultsContainer = document.getElementById('resultsContainer');
     const emptyState = document.getElementById('emptyState');
     const generateButton = document.getElementById('generateButton');
+    const copyButton = document.getElementById('copyButton');
+    
+    let currentAddresses = [];
     
     form.addEventListener('submit', function(e) {
         e.preventDefault();
@@ -96,6 +156,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Clear previous results but keep empty state hidden
         resultsContainer.innerHTML = '';
         emptyState.classList.add('d-none');
+        copyButton.style.display = 'none';
         
         // Disable button and show loading state
         generateButton.disabled = true;
@@ -112,63 +173,133 @@ document.addEventListener('DOMContentLoaded', function() {
                 'count': count
             })
         })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
         .then(data => {
             if (data.success) {
-                data.addresses.forEach(address => {
-                    const addressEl = document.createElement('div');
-                    addressEl.className = 'address-card';
-                    
-                    addressEl.innerHTML = `
-                        <div class="address-field">
-                            <span class="address-label">Name:</span>
-                            <span class="address-value">${address.name}</span>
-                        </div>
-                        <div class="address-field">
-                            <span class="address-label">Street:</span>
-                            <span class="address-value">${address.street}</span>
-                        </div>
-                        <div class="address-field">
-                            <span class="address-label">City:</span>
-                            <span class="address-value">${address.city}</span>
-                        </div>
-                        <div class="address-field">
-                            <span class="address-label">State:</span>
-                            <span class="address-value">${address.state}</span>
-                        </div>
-                        <div class="address-field">
-                            <span class="address-label">ZIP:</span>
-                            <span class="address-value">${address.zip}</span>
-                        </div>
-                        <div class="address-field">
-                            <span class="address-label">Country:</span>
-                            <span class="address-value">${address.country}</span>
-                        </div>
-                        <div class="address-field">
-                            <span class="address-label">Phone:</span>
-                            <span class="address-value">${address.phone}</span>
-                        </div>
-                        <div class="address-field">
-                            <span class="address-label">Email:</span>
-                            <span class="address-value">${address.email}</span>
-                        </div>
-                        <hr>
-                    `;
-                    
-                    resultsContainer.appendChild(addressEl);
-                });
+                currentAddresses = data.addresses || [];
+                
+                if (currentAddresses.length > 0) {
+                    displayAddresses(currentAddresses);
+                    copyButton.style.display = 'block';
+                }
             } else {
-                alert('Error: ' + data.error);
+                showError(data.error || 'Failed to generate addresses');
             }
         })
         .catch(error => {
-            alert('Network error: ' + error.message);
+            console.error('Error:', error);
+            showError('Network error: ' + error.message);
         })
         .finally(() => {
             generateButton.disabled = false;
             generateButton.innerHTML = '<i class="bi bi-geo-alt"></i> Generate Addresses';
         });
     });
+    
+    copyButton.addEventListener('click', function() {
+        const text = currentAddresses.map(addr => 
+            `Name: ${addr.name}\n` +
+            `Street: ${addr.street}\n` +
+            `City: ${addr.city}\n` +
+            `State: ${addr.state}\n` +
+            `ZIP: ${addr.zip}\n` +
+            `Country: ${addr.country}\n` +
+            `Phone: ${addr.phone}\n` +
+            `Email: ${addr.email}\n`
+        ).join('\n');
+        
+        navigator.clipboard.writeText(text).then(() => {
+            // Show success message
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-success alert-dismissible fade show';
+            alert.innerHTML = `
+                <i class="bi bi-check-circle"></i> Address copied to clipboard!
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            resultsContainer.prepend(alert);
+            
+            // Auto-dismiss after 3 seconds
+            setTimeout(() => {
+                if (alert.parentNode) {
+                    alert.remove();
+                }
+            }, 3000);
+        }).catch(err => {
+            showError('Failed to copy to clipboard: ' + err);
+        });
+    });
+    
+    function displayAddresses(addresses) {
+        addresses.forEach((address, index) => {
+            const addressEl = document.createElement('div');
+            addressEl.className = 'address-card';
+            
+            // Get flag emoji for country
+            const flag = getCountryFlag(address.country);
+            
+            addressEl.innerHTML = `
+                <div class="address-field">
+                    <span class="address-label">Name:</span>
+                    <span class="address-value">${address.name}</span>
+                </div>
+                <div class="address-field">
+                    <span class="address-label">Street:</span>
+                    <span class="address-value">${address.street}</span>
+                </div>
+                <div class="address-field">
+                    <span class="address-label">City:</span>
+                    <span class="address-value">${address.city}</span>
+                </div>
+                <div class="address-field">
+                    <span class="address-label">State:</span>
+                    <span class="address-value">${address.state}</span>
+                </div>
+                <div class="address-field">
+                    <span class="address-label">ZIP:</span>
+                    <span class="address-value">${address.zip}</span>
+                </div>
+                <div class="address-field">
+                    <span class="address-label">Country:</span>
+                    <span class="address-value">${flag} ${address.country}</span>
+                </div>
+                <div class="address-field">
+                    <span class="address-label">Phone:</span>
+                    <span class="address-value">${address.phone}</span>
+                </div>
+                <div class="address-field">
+                    <span class="address-label">Email:</span>
+                    <span class="address-value">${address.email}</span>
+                </div>
+                ${index < addresses.length - 1 ? '<hr class="my-3">' : ''}
+            `;
+            
+            resultsContainer.appendChild(addressEl);
+        });
+    }
+    
+    function getCountryFlag(countryCode) {
+        // Convert country code to flag emoji
+        if (countryCode && countryCode.length === 2) {
+            return countryCode.toUpperCase().replace(/./g, 
+                char => String.fromCodePoint(127397 + char.charCodeAt())
+            );
+        }
+        return '🏳️';
+    }
+    
+    function showError(message) {
+        const errorEl = document.createElement('div');
+        errorEl.className = 'alert alert-danger';
+        errorEl.innerHTML = `
+            <i class="bi bi-exclamation-triangle"></i> ${message}
+        `;
+        resultsContainer.appendChild(errorEl);
+    }
 });
 </script>
 {% endblock %}
