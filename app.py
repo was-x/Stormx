@@ -862,32 +862,70 @@ def fake_address():
         return redirect(url_for('login'))
     return render_template('fake_address.html', username=session.get('username'), credits=session.get('credits', 0))
 
+@app.route('/fake_address')
+def fake_address():
+    if 'user_id' not in session or 'access_key' not in session:
+        return redirect(url_for('login'))
+    return render_template('fake_address.html', username=session.get('username'), credits=session.get('credits', 0))
+
 @app.route('/generate_address', methods=['POST'])
 def generate_address():
     try:
         country = request.form.get('country', 'us')
         count = int(request.form.get('count', 1))
         
+        # List of available countries with Faker support
+        available_countries = [
+            'us', 'gb', 'ca', 'au', 'de', 'fr', 'es', 'it', 'nl', 'br', 
+            'mx', 'in', 'jp', 'cn', 'ru', 'se', 'no', 'dk', 'fi', 'pl',
+            'tr', 'za', 'eg', 'ng', 'ke', 'ar', 'cl', 'co', 'pe', 've',
+            'ch', 'at', 'be', 'pt', 'gr', 'cz', 'hu', 'ro', 'il', 'sa',
+            'ae', 'sg', 'my', 'th', 'id', 'ph', 'vn', 'kr', 'tw', 'hk'
+        ]
+        
+        if country not in available_countries:
+            return jsonify({'success': False, 'error': 'Country not supported'})
+        
         addresses = []
         for _ in range(count):
-            response = requests.get(f'https://randomuser.me/api/?nat={country}')
-            data = response.json()
-            user = data['results'][0]
-            
-            address = {
-                'name': f"{user['name']['first']} {user['name']['last']}",
-                'street': f"{user['location']['street']['number']} {user['location']['street']['name']}",
-                'city': user['location']['city'],
-                'state': user['location']['state'],
-                'zip': user['location']['postcode'],
-                'country': user['nat'],
-                'phone': user['phone'],
-                'email': user['email']
-            }
-            addresses.append(address)
+            try:
+                response = requests.get(f'https://randomuser.me/api/?nat={country}', timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    user = data['results'][0]
+                    
+                    address = {
+                        'name': f"{user['name']['first']} {user['name']['last']}",
+                        'street': f"{user['location']['street']['number']} {user['location']['street']['name']}",
+                        'city': user['location']['city'],
+                        'state': user['location']['state'],
+                        'zip': user['location']['postcode'],
+                        'country': user['nat'].upper(),
+                        'phone': user['phone'],
+                        'email': user['email']
+                    }
+                    addresses.append(address)
+            except Exception as e:
+                print(f"Error generating address: {e}")
+                continue
         
-        if count > 5:
-            content = "\n\n".join([f"{k}: {v}" for addr in addresses for k, v in addr.items()])
+        if not addresses:
+            return jsonify({'success': False, 'error': 'Failed to generate addresses'})
+        
+        if count > 1:
+            # Format for download
+            content = ""
+            for i, addr in enumerate(addresses, 1):
+                content += f"=== Address {i} ===\n"
+                content += f"Name: {addr['name']}\n"
+                content += f"Street: {addr['street']}\n"
+                content += f"City: {addr['city']}\n"
+                content += f"State: {addr['state']}\n"
+                content += f"ZIP: {addr['zip']}\n"
+                content += f"Country: {addr['country']}\n"
+                content += f"Phone: {addr['phone']}\n"
+                content += f"Email: {addr['email']}\n\n"
+            
             return send_file(
                 io.BytesIO(content.encode("utf-8")),
                 as_attachment=True,
@@ -899,7 +937,6 @@ def generate_address():
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
-
 # -----------------------
 # BIN INFO
 # -----------------------
