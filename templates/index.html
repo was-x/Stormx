@@ -90,6 +90,10 @@ body.dark-mode .hero-android { background:#1f1f1f; color:#fff; box-shadow:0 6px 
       <div class="quick-link-icon bg-info"><i class="bi bi-layers"></i></div>
       <p class="quick-link-name">Gen Card</p>
     </a>
+    <a href="{{ url_for('fake_address') }}" class="quick-link">
+      <div class="quick-link-icon bg-secondary"><i class="bi bi-geo-alt"></i></div>
+      <p class="quick-link-name">Fake Address</p>
+    </a>
     <a href="{{ url_for('bin_info_page') }}" class="quick-link">
       <div class="quick-link-icon bg-success"><i class="bi bi-info-circle"></i></div>
       <p class="quick-link-name">BIN Info</p>
@@ -104,19 +108,19 @@ body.dark-mode .hero-android { background:#1f1f1f; color:#fff; box-shadow:0 6px 
     <div class="col-md-4 mb-3">
       <div class="stat-card bg-primary">
         <h5>Total Checks</h5>
-        <h2 id="totalChecks">0</h2>
+        <h2 id="totalChecks">{{ total_checks }}</h2>
       </div>
     </div>
     <div class="col-md-4 mb-3">
       <div class="stat-card bg-success">
         <h5>Approved</h5>
-        <h2 id="approvedCount">0</h2>
+        <h2 id="approvedCount">{{ approved_count }}</h2>
       </div>
     </div>
     <div class="col-md-4 mb-3">
       <div class="stat-card bg-danger">
         <h5>Declined</h5>
-        <h2 id="declinedCount">0</h2>
+        <h2 id="declinedCount">{{ declined_count }}</h2>
       </div>
     </div>
   </div>
