@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}STORM X - Fake Address Generator{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="glass-card p-4 mb-4">
+        <div class="text-center mb-4">
+            <h3 class="fw-bold"><i class="bi bi-geo-alt me-2"></i> Fake Address Generator</h3>
+            <p class="text-muted">Generate realistic fake addresses for testing</p>
+        </div>
+
+        <form id="addressForm">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="country" class="form-label fw-semibold">Country</label>
+                    <select class="form-select" id="country" name="country">
+                        <option value="us">United States</option>
+                        <option value="gb">United Kingdom</option>
+                        <option value="ca">Canada</option>
+                        <option value="au">Australia</option>
+                        <option value="de">Germany</option>
+                        <option value="fr">France</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-6 mb-3">
+                    <label for="count" class="form-label fw-semibold">Number of Addresses</label>
+                    <input type="number" class="form-control" id="count" name="count" value="5" min="1" max="100">
+                </div>
+            </div>
+            
+            <div class="d-grid">
+                <button type="submit" class="btn btn-primary btn-lg" id="generateButton">
+                    <i class="bi bi-geo-alt"></i> Generate Addresses
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="glass-card p-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="fw-bold mb-0"><i class="bi bi-list-check"></i> Generated Addresses</h4>
+        </div>
+        
+        <div id="resultsContainer" style="max-height: 500px; overflow-y: auto;">
+            <div class="text-center text-muted py-5" id="emptyState">
+                <i class="bi bi-inbox display-4 d-block mb-2"></i>
+                <p>No addresses generated yet. Fill the form and click generate.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<style>
+    .address-card {
+        border-left: 4px solid #6c757d;
+        margin-bottom: 12px;
+        transition: all 0.3s ease;
+        border-radius: 8px;
+        padding: 15px;
+    }
+    .address-field {
+        display: grid;
+        grid-template-columns: 100px 1fr;
+        gap: 8px;
+        font-size: 0.85rem;
+        margin-bottom: 5px;
+    }
+    .address-label {
+        font-weight: 600;
+        color: #6c757d;
+    }
+    .address-value {
+        word-break: break-all;
+    }
+    body.dark-mode .address-label {
+        color: #a0aec0;
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('addressForm');
+    const resultsContainer = document.getElementById('resultsContainer');
+    const emptyState = document.getElementById('emptyState');
+    const generateButton = document.getElementById('generateButton');
+    
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const country = document.getElementById('country').value;
+        const count = document.getElementById('count').value;
+        
+        // Clear previous results but keep empty state hidden
+        resultsContainer.innerHTML = '';
+        emptyState.classList.add('d-none');
+        
+        // Disable button and show loading state
+        generateButton.disabled = true;
+        generateButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Generating...';
+        
+        // Make API request
+        fetch('/generate_address', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                'country': country,
+                'count': count
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                data.addresses.forEach(address => {
+                    const addressEl = document.createElement('div');
+                    addressEl.className = 'address-card';
+                    
+                    addressEl.innerHTML = `
+                        <div class="address-field">
+                            <span class="address-label">Name:</span>
+                            <span class="address-value">${address.name}</span>
+                        </div>
+                        <div class="address-field">
+                            <span class="address-label">Street:</span>
+                            <span class="address-value">${address.street}</span>
+                        </div>
+                        <div class="address-field">
+                            <span class="address-label">City:</span>
+                            <span class="address-value">${address.city}</span>
+                        </div>
+                        <div class="address-field">
+                            <span class="address-label">State:</span>
+                            <span class="address-value">${address.state}</span>
+                        </div>
+                        <div class="address-field">
+                            <span class="address-label">ZIP:</span>
+                            <span class="address-value">${address.zip}</span>
+                        </div>
+                        <div class="address-field">
+                            <span class="address-label">Country:</span>
+                            <span class="address-value">${address.country}</span>
+                        </div>
+                        <div class="address-field">
+                            <span class="address-label">Phone:</span>
+                            <span class="address-value">${address.phone}</span>
+                        </div>
+                        <div class="address-field">
+                            <span class="address-label">Email:</span>
+                            <span class="address-value">${address.email}</span>
+                        </div>
+                        <hr>
+                    `;
+                    
+                    resultsContainer.appendChild(addressEl);
+                });
+            } else {
+                alert('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Network error: ' + error.message);
+        })
+        .finally(() => {
+            generateButton.disabled = false;
+            generateButton.innerHTML = '<i class="bi bi-geo-alt"></i> Generate Addresses';
+        });
+    });
+});
+</script>
+{% endblock %}
