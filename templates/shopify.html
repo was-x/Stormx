@@ -9,7 +9,7 @@
             <p class="text-muted">Check cards against multiple Shopify sites with proxies</p>
         </div>
 
-        <form id="shopifyForm" enctype="multipart/form-data">
+        <form id="shopifyForm">
             <div class="row">
                 <div class="col-md-4 mb-3">
                     <label for="sites" class="form-label fw-semibold">Shopify Sites (one per line)</label>
@@ -27,12 +27,8 @@
                 <div class="col-md-4 mb-3">
                     <label for="cards" class="form-label fw-semibold">Cards (one per line)</label>
                     <textarea class="form-control" id="cards" name="cards" rows="8" 
-                              placeholder="NUMBER|MM|YY|CVV"></textarea>
+                              placeholder="NUMBER|MM|YY|CVV" required></textarea>
                     <div class="form-text">Format: Card Number|Exp Month|Exp Year|CVV</div>
-                    
-                    <label for="card_file" class="form-label fw-semibold mt-3">Or Upload Card File</label>
-                    <input type="file" class="form-control" id="card_file" name="card_file" accept=".txt">
-                    <div class="form-text">Upload a text file with one card per line</div>
                 </div>
             </div>
             
@@ -146,10 +142,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const sites = document.getElementById('sites').value.trim();
         const proxies = document.getElementById('proxies').value.trim();
         const cards = document.getElementById('cards').value.trim();
-        const fileInput = document.getElementById('card_file');
         
-        if (!sites || (!cards && !fileInput.files[0])) {
-            alert('Please provide at least one site and cards (either text or file)');
+        if (!sites || !cards) {
+            alert('Please provide at least one site and one card');
             return;
         }
         
@@ -165,24 +160,16 @@ document.addEventListener('DOMContentLoaded', function() {
         checkButton.disabled = true;
         checkButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
         
-        // Create form data
-        const formData = new FormData();
-        formData.append('sites', sites);
-        formData.append('proxies', proxies);
-        formData.append('cards', cards);
-        
-        if (fileInput.files[0]) {
-            formData.append('card_file', fileInput.files[0]);
-        }
-        
         // Set up Server-Sent Events connection
         if (eventSource) eventSource.close();
         
-        eventSource = new EventSource('/shopify_check?' + new URLSearchParams({
-            sites: sites,
-            proxies: proxies,
-            cards: cards
-        }).toString());
+        // Create URL with query parameters
+        const params = new URLSearchParams();
+        params.append('sites', sites);
+        params.append('proxies', proxies);
+        params.append('cards', cards);
+        
+        eventSource = new EventSource('/shopify_check?' + params.toString());
         
         eventSource.onmessage = function(event) {
             const data = JSON.parse(event.data);
