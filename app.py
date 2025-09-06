@@ -100,7 +100,7 @@ def send_welcome(message):
     bot.reply_to(message, f"🚀 Welcome to STORM X Card Checker!\n\n"
                  f"Your Access Key: `{access_key}`\n\n"
                  f"Use this key to access the web panel. You have 100 free credits to start with!\n\n"
-                 f"Web Panel: https://stormx-dark.onrender.com", parse_mode='Markdown')
+                 f"Web Panel: https://storm-x.onrender.com", parse_mode='Markdown')
 
 @bot.message_handler(commands=['credits'])
 def check_credits(message):
