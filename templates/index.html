@@ -1,105 +1,291 @@
 {% extends "base.html" %}
-{% block title %}STORM X - Premium Card Validation Platform{% endblock %}
+{% block title %}STORM X - Dashboard{% endblock %}
 {% block content %}
-<div class="hero-section">
-  <div class="hero-bg"></div>
-  <div class="container">
-    <div class="hero-content glass-card">
-      <span class="badge bg-primary mb-3 px-3 py-2">PREMIUM PLATFORM</span>
-      <h1 class="hero-title">Advanced Card Validation Technology</h1>
-      <p class="hero-subtitle">Multi-gateway checking with industry-leading accuracy and real-time analytics</p>
-      <a href="{{ url_for('single_check') }}" class="hero-btn">
-        <i class="bi bi-play-circle-fill me-2"></i> Start Checking Now
-      </a>
-    </div>
+<style>
+/* -------------------------
+   Hero Section
+-------------------------- */
+.hero-android {
+  background: linear-gradient(135deg, #0d6efd, #6f42c1);
+  color: #fff;
+  border-radius: 24px;
+  padding: 3rem 1.5rem 5rem;
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0,0,0,.25);
+  transform-style: preserve-3d;
+  perspective: 1000px;
+  transition: transform 0.4s ease, box-shadow 0.4s ease;
+}
+.hero-android:hover {
+  transform: rotateX(4deg) rotateY(-4deg) scale(1.02);
+  box-shadow: 0 30px 60px rgba(0,0,0,.35);
+}
+.hero-android .title {
+  font-weight: 900;
+  font-size: clamp(1.6rem, 4vw, 2.6rem);
+  margin-bottom: 12px;
+}
+.hero-android .lead {
+  font-size: 1.1rem;
+  opacity: 0.9;
+  margin-bottom: 1.4rem;
+}
+.hero-btn {
+  border-radius: 999px;
+  padding: 0.75rem 1.6rem;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(0,0,0,.25);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.hero-btn:hover {
+  transform: scale(1.08);
+  box-shadow: 0 12px 28px rgba(0,0,0,.3);
+}
+
+/* Wave Animation */
+.wave {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 100%;
+  height: 120px;
+}
+.wave path {
+  animation: moveWave 12s linear infinite alternate;
+}
+@keyframes moveWave {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50px); }
+}
+
+/* -------------------------
+   Quick Links Section
+-------------------------- */
+.quick-links-grid {
+  display: grid;
+  grid-template-columns: repeat(2,1fr);
+  gap: 20px;
+}
+@media (min-width:768px) {
+  .quick-links-grid {
+    grid-template-columns: repeat(5,1fr);
+  }
+}
+.quick-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.6rem;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 25px rgba(0,0,0,.12);
+  text-decoration: none;
+  color: #0d6efd;
+  transition: transform 0.4s ease, box-shadow 0.4s ease;
+  transform-style: preserve-3d;
+}
+.quick-link:hover {
+  transform: rotateX(6deg) rotateY(-6deg) scale(1.1);
+  box-shadow: 0 22px 45px rgba(0,140,255,0.45);
+}
+.quick-link-icon {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  font-size: 1.6rem;
+  color: #fff;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.quick-link:hover .quick-link-icon {
+  transform: rotate(8deg) scale(1.1);
+  box-shadow: 0 0 20px rgba(255,255,255,.4);
+}
+.quick-link-name {
+  font-weight: 600;
+  font-size: 1rem;
+  margin: 0;
+  text-align: center;
+}
+
+/* Color Variants */
+.bg-purple { background: #6f42c1 !important; }
+.bg-primary { background: #0d6efd !important; }
+.bg-warning { background: #ffc107 !important; color: #212529 !important; }
+.bg-info    { background: #0dcaf0 !important; }
+.bg-success { background: #198754 !important; }
+.bg-secondary { background: #6c757d !important; }
+
+/* -------------------------
+   Stats Section
+-------------------------- */
+.stat-card {
+  border-radius: 20px;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(0,0,0,.25);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transform-style: preserve-3d;
+}
+.stat-card:hover {
+  transform: rotateX(5deg) rotateY(-5deg) scale(1.05);
+  box-shadow: 0 20px 40px rgba(0,0,0,.35);
+}
+.stat-card h5 {
+  font-weight: 600;
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+}
+.stat-card h2 {
+  font-weight: 900;
+  font-size: 2.6rem;
+  margin: 0;
+}
+
+/* Stat Colors */
+.stat-card.bg-primary {
+  background: linear-gradient(135deg,#0d6efd,#3a86ff);
+}
+.stat-card.bg-success {
+  background: linear-gradient(135deg,#198754,#28a745);
+}
+.stat-card.bg-danger {
+  background: linear-gradient(135deg,#dc3545,#ff4d6d);
+}
+
+/* -------------------------
+   Dark Mode
+-------------------------- */
+body.dark-mode .quick-link {
+  background: #1e1e1e;
+  color: #e6edf3;
+  box-shadow: 0 10px 25px rgba(0,0,0,.6);
+}
+body.dark-mode .hero-android {
+  background: #1f1f1f;
+  color: #fff;
+  box-shadow: 0 10px 25px rgba(0,0,0,.6);
+}
+body.dark-mode .stat-card.bg-primary {
+  background: linear-gradient(135deg,#0a58ca,#3a86ff);
+}
+body.dark-mode .stat-card.bg-success {
+  background: linear-gradient(135deg,#157347,#28a745);
+}
+body.dark-mode .stat-card.bg-danger {
+  background: linear-gradient(135deg,#bb2d3b,#ff4d6d);
+}
+</style>
+
+<!-- Hero -->
+<section class="hero-android mb-5">
+  <span class="badge bg-light text-dark mb-2 px-3 py-1">Welcome</span>
+  <h1 class="title">⚡ STORM X</h1>
+  <p class="lead">Multi-Gateway Card Checker with Real-Time Insights</p>
+  <a href="{{ url_for('single_check') }}" class="btn btn-light hero-btn">
+    <i class="bi bi-play-circle-fill me-1"></i> Start Checking
+  </a>
+  <svg class="wave" viewBox="0 0 1440 120" preserveAspectRatio="none">
+    <path fill="rgba(255,255,255,.25)">
+      <animate attributeName="d" dur="12s" repeatCount="indefinite"
+        values="
+        M0,64L80,69.3C160,75,320,85,480,85.3C640,85,800,75,960,69.3C1120,64,1280,64,1360,64L1440,64L1440,120L0,120Z;
+        M0,96L80,80C160,64,320,32,480,21.3C640,11,800,21,960,37.3C1120,53,1280,75,1360,85.3L1440,96L1440,120L0,120Z;
+        M0,64L80,69.3C160,75,320,85,480,85.3C640,85,800,75,960,69.3C1120,64,1280,64,1360,64L1440,64L1440,120L0,120Z
+        " />
+    </path>
+  </svg>
+</section>
+
+<!-- Quick Links -->
+<section class="mb-5">
+  <h2 class="fw-bold mb-3">Quick Actions</h2>
+  <div class="quick-links-grid">
+    <a href="{{ url_for('single_check') }}" class="quick-link">
+      <div class="quick-link-icon bg-primary"><i class="bi bi-credit-card"></i></div>
+      <p class="quick-link-name">Single Check</p>
+    </a>
+    <a href="{{ url_for('mass_check_page') }}" class="quick-link">
+      <div class="quick-link-icon bg-warning"><i class="bi bi-collection"></i></div>
+      <p class="quick-link-name">Mass Check</p>
+    </a>
+    <a href="{{ url_for('shopify_check') }}" class="quick-link">
+      <div class="quick-link-icon bg-purple"><i class="bi bi-cart"></i></div>
+      <p class="quick-link-name">Shopify Check</p>
+    </a>
+    <a href="{{ url_for('gen_card') }}" class="quick-link">
+      <div class="quick-link-icon bg-info"><i class="bi bi-layers"></i></div>
+      <p class="quick-link-name">Gen Card</p>
+    </a>
+    <a href="{{ url_for('fake_address') }}" class="quick-link">
+      <div class="quick-link-icon bg-secondary"><i class="bi bi-geo-alt"></i></div>
+      <p class="quick-link-name">Fake Address</p>
+    </a>
+    <a href="{{ url_for('bin_info_page') }}" class="quick-link">
+      <div class="quick-link-icon bg-success"><i class="bi bi-info-circle"></i></div>
+      <p class="quick-link-name">BIN Info</p>
+    </a>
   </div>
-</div>
+</section>
 
-<div class="container">
-  <!-- Quick Links -->
-  <section class="mb-5">
-    <h2 class="text-center mb-4 fw-bold">Quick Actions</h2>
-    <div class="quick-links-grid">
-      <a href="{{ url_for('single_check') }}" class="quick-link glass-card">
-        <div class="quick-link-icon"><i class="bi bi-credit-card"></i></div>
-        <p class="quick-link-name">Single Check</p>
-      </a>
-      <a href="{{ url_for('mass_check_page') }}" class="quick-link glass-card">
-        <div class="quick-link-icon"><i class="bi bi-collection"></i></div>
-        <p class="quick-link-name">Mass Check</p>
-      </a>
-      <a href="{{ url_for('shopify_check') }}" class="quick-link glass-card">
-        <div class="quick-link-icon"><i class="bi bi-cart"></i></div>
-        <p class="quick-link-name">Shopify Check</p>
-      </a>
-      <a href="{{ url_for('gen_card') }}" class="quick-link glass-card">
-        <div class="quick-link-icon"><i class="bi bi-layers"></i></div>
-        <p class="quick-link-name">Gen Card</p>
-      </a>
-      <a href="{{ url_for('fake_address') }}" class="quick-link glass-card">
-        <div class="quick-link-icon"><i class="bi bi-geo-alt"></i></div>
-        <p class="quick-link-name">Fake Address</p>
-      </a>
-      <a href="{{ url_for('bin_info_page') }}" class="quick-link glass-card">
-        <div class="quick-link-icon"><i class="bi bi-info-circle"></i></div>
-        <p class="quick-link-name">BIN Info</p>
-      </a>
-    </div>
-  </section>
-
-  <!-- Stats -->
-  <section class="mb-5">
-    <h2 class="text-center mb-4 fw-bold">Performance Metrics</h2>
-    <div class="stats-grid">
-      <div class="stat-card">
+<!-- Stats -->
+<section class="mb-5">
+  <h2 class="fw-bold mb-3">Statistics</h2>
+  <div class="row">
+    <div class="col-md-4 mb-3">
+      <div class="stat-card bg-primary">
         <h5>Total Checks</h5>
         <h2 id="totalChecks">{{ total_checks }}</h2>
       </div>
-      <div class="stat-card">
+    </div>
+    <div class="col-md-4 mb-3">
+      <div class="stat-card bg-success">
         <h5>Approved</h5>
         <h2 id="approvedCount">{{ approved_count }}</h2>
       </div>
-      <div class="stat-card">
+    </div>
+    <div class="col-md-4 mb-3">
+      <div class="stat-card bg-danger">
         <h5>Declined</h5>
         <h2 id="declinedCount">{{ declined_count }}</h2>
       </div>
     </div>
-  </section>
-</div>
+  </div>
+</section>
 
 <script>
-// Additional animations for the dashboard
-document.addEventListener('DOMContentLoaded', function() {
-  // Animate quick links on scroll
-  const quickLinks = document.querySelectorAll('.quick-link');
-  
-  const quickLinksObserver = new IntersectionObserver((entries) => {
-    entries.forEach((entry, index) => {
-      if (entry.isIntersecting) {
-        setTimeout(() => {
-          entry.target.style.opacity = 1;
-          entry.target.style.transform = 'translateY(0)';
-        }, index * 100);
-      }
-    });
-  }, { threshold: 0.1 });
-  
-  quickLinks.forEach((link, index) => {
-    link.style.opacity = 0;
-    link.style.transform = 'translateY(20px)';
-    link.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-    quickLinksObserver.observe(link);
-  });
-  
-  // Parallax effect for hero background
-  const heroBg = document.querySelector('.hero-bg');
-  window.addEventListener('scroll', () => {
-    if (heroBg) {
-      const scrolled = window.pageYOffset;
-      const rate = scrolled * -0.5;
-      heroBg.style.transform = `translate3d(0px, ${rate}px, 0px)`;
-    }
-  });
-});
+// Stats load + count-up animation
+async function loadStats() {
+  try {
+    const response = await fetch('/get_results');
+    const data = await response.json();
+    const results = data.results || [];
+    const totalChecks = results.length;
+    const approvedCount = results.filter(r => r.status && r.status.toLowerCase() === 'approved').length;
+    const declinedCount = totalChecks - approvedCount;
+    animateValue('totalChecks', 0, totalChecks, 1500);
+    animateValue('approvedCount', 0, approvedCount, 1500);
+    animateValue('declinedCount', 0, declinedCount, 1500);
+  } catch (err) { console.error('Failed to load stats:', err); }
+}
+function animateValue(id, start, end, duration) {
+  const obj = document.getElementById(id);
+  let startTimestamp = null;
+  const step = (ts) => {
+    if (!startTimestamp) startTimestamp = ts;
+    const progress = Math.min((ts - startTimestamp) / duration, 1);
+    obj.textContent = Math.floor(progress * (end - start) + start);
+    if (progress < 1) window.requestAnimationFrame(step);
+  };
+  window.requestAnimationFrame(step);
+}
+document.addEventListener('DOMContentLoaded', loadStats);
 </script>
 {% endblock %}
