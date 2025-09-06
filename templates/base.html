@@ -289,6 +289,7 @@
           <li class="nav-item"><a class="nav-link {% if request.path == url_for('mass_check_page') %}active{% endif %}" href="{{ url_for('mass_check_page') }}"><i class="bi bi-collection me-1"></i> Mass Check</a></li>
           <li class="nav-item"><a class="nav-link {% if request.path == url_for('shopify_check') %}active{% endif %}" href="{{ url_for('shopify_check') }}"><i class="bi bi-cart me-1"></i> Shopify Check</a></li>
           <li class="nav-item"><a class="nav-link {% if request.path == url_for('gen_card') %}active{% endif %}" href="{{ url_for('gen_card') }}"><i class="bi bi-layers me-1"></i> Gen Card</a></li>
+          <li class="nav-item"><a class="nav-link {% if request.path == url_for('fake_address') %}active{% endif %}" href="{{ url_for('fake_address') }}"><i class="bi bi-geo-alt me-1"></i> Fake Address</a></li>
           <li class="nav-item"><a class="nav-link {% if request.path == url_for('bin_info_page') %}active{% endif %}" href="{{ url_for('bin_info_page') }}"><i class="bi bi-info-circle me-1"></i> BIN Info</a></li>
             <div class="nav-link py-1">
               <i class="bi bi-person me-1"></i> {{ session.get('username') }}
