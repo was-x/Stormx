@@ -188,36 +188,28 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             
-            // Determine the status based on response content
+            // Use the status from the server instead of trying to determine it client-side
             let status = data.status;
             let statusClass = status.toLowerCase();
             
-            // Override status based on response content for Shopify
-            const responseUpper = data.response.toUpperCase();
-            if (responseUpper.includes('THANK YOU') || responseUpper.includes('INSUFFICIENT')) {
-                status = 'HIT';
-                statusClass = 'hit';
-                hits++;
-            } else if (responseUpper.includes('3D') || responseUpper.includes('OTP') || 
-                      responseUpper.includes('INCORRECT') || responseUpper.includes('CVV') ||
-                      responseUpper.includes('ZIP')) {
-                status = 'APPROVED';
-                statusClass = 'approved';
-                approved++;
-            } else if (responseUpper.includes('DECLINED') || responseUpper.includes('FAILED') ||
-                      responseUpper.includes('ERROR') || responseUpper.includes('INVALID')) {
-                status = 'DECLINED';
-                statusClass = 'declined';
-                declined++;
-            } else if (responseUpper.includes('EXPIRED')) {
-                status = 'EXPIRED';
-                statusClass = 'expired';
-                declined++;
-            } else {
-                // Default to error for unknown responses
-                status = 'ERROR';
-                statusClass = 'error';
-                errors++;
+            // Update counters based on server-provided status
+            switch(status) {
+                case 'HIT':
+                    hits++;
+                    break;
+                case 'APPROVED':
+                case 'APPROVED_OTP':
+                    approved++;
+                    break;
+                case 'DECLINED':
+                case 'EXPIRED':
+                    declined++;
+                    break;
+                case 'ERROR':
+                    errors++;
+                    break;
+                default:
+                    errors++;
             }
             
             updateCounters();
@@ -286,9 +278,10 @@ document.addEventListener('DOMContentLoaded', function() {
         switch(status) {
             case 'HIT': return 'bg-info';
             case 'APPROVED': return 'bg-success';
+            case 'APPROVED_OTP': return 'bg-warning text-dark';
             case 'DECLINED': return 'bg-danger';
             case 'EXPIRED': return 'bg-secondary';
-            case 'OTP': return 'bg-warning text-dark';
+            case 'ERROR': return 'bg-warning text-dark';
             default: return 'bg-dark';
         }
     }
