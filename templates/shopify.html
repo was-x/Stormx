@@ -133,7 +133,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const emptyState = document.getElementById('emptyState');
     const checkButton = document.getElementById('checkButton');
     
-    let hits = 0, approved = 0, declined = 0, errors = 0;
     let eventSource = null;
     
     form.addEventListener('submit', function(e) {
@@ -148,11 +147,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Reset counters
-        hits = approved = declined = errors = 0;
-        updateCounters();
-        
-        // Clear previous results but keep empty state hidden
+        // Clear previous results
         resultsContainer.innerHTML = '';
         emptyState.classList.add('d-none');
         
@@ -160,8 +155,10 @@ document.addEventListener('DOMContentLoaded', function() {
         checkButton.disabled = true;
         checkButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
         
-        // Set up Server-Sent Events connection
-        if (eventSource) eventSource.close();
+        // Close previous connection if exists
+        if (eventSource) {
+            eventSource.close();
+        }
         
         // Create URL with query parameters
         const params = new URLSearchParams();
@@ -169,126 +166,88 @@ document.addEventListener('DOMContentLoaded', function() {
         params.append('proxies', proxies);
         params.append('cards', cards);
         
+        console.log('Connecting to:', '/shopify_check?' + params.toString());
+        
         eventSource = new EventSource('/shopify_check?' + params.toString());
         
-        eventSource.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            
-            if (data.complete) {
-                // Check complete
-                checkButton.disabled = false;
-                checkButton.innerHTML = '<i class="bi bi-play-circle"></i> Start Checking';
-                eventSource.close();
-                
-                // Show completion message
-                const completeEl = document.createElement('div');
-                completeEl.className = 'alert alert-info mt-3';
-                completeEl.innerHTML = `<i class="bi bi-check-circle"></i> Check completed! Processed ${hits + approved + declined + errors} cards.`;
-                resultsContainer.prepend(completeEl);
-                return;
-            }
-            
-            // Use the status from the server instead of trying to determine it client-side
-            let status = data.status;
-            let statusClass = status.toLowerCase();
-            
-            // Update counters based on server-provided status
-            switch(status) {
-                case 'HIT':
-                    hits++;
-                    break;
-                case 'APPROVED':
-                case 'APPROVED_OTP':
-                    approved++;
-                    break;
-                case 'DECLINED':
-                case 'EXPIRED':
-                    declined++;
-                    break;
-                case 'ERROR':
-                    errors++;
-                    break;
-                default:
-                    errors++;
-            }
-            
-            updateCounters();
-            
-            // Create result card
-            const resultEl = document.createElement('div');
-            resultEl.className = `result-card ${statusClass}`;
-            
-            resultEl.innerHTML = `
-                <div class="d-flex justify-content-between align-items-start mb-2">
-                    <div>
-                        <h6 class="mb-1 card-number">${data.card}</h6>
-                        <div class="d-flex align-items-center mb-2">
-                            <span class="badge ${getStatusBadgeClass(status)} status-badge me-2">${status}</span>
-                            <small class="text-muted">${new Date().toLocaleTimeString()}</small>
-                        </div>
-                    </div>
-                    <div class="text-end">
-                        <div class="fw-bold text-success">$${data.amount}</div>
-                    </div>
-                </div>
-                
-                <div class="result-details">
-                    <span class="result-label">Gateway:</span>
-                    <span class="result-value">${data.gateway}</span>
-                    
-                    <span class="result-label">Amount:</span>
-                    <span class="result-value">$${data.amount}</span>
-                    
-                    <span class="result-label">Site:</span>
-                    <span class="result-value site-url" title="${data.site}">${data.site}</span>
-                    
-                    <span class="result-label">Proxy:</span>
-                    <span class="result-value" title="${data.proxy}">${data.proxy || 'None'}</span>
-                    
-                    <span class="result-label">Response:</span>
-                    <span class="result-value">${data.response}</span>
-                </div>
-            `;
-            
-            // Add to top of results
-            resultsContainer.prepend(resultEl);
+        eventSource.onopen = function() {
+            console.log('EventSource connection opened');
+            addResult('CONNECTION', 'Connection established with server', 'info');
         };
         
-        eventSource.onerror = function() {
+        eventSource.onmessage = function(event) {
+            console.log('Received message:', event.data);
+            
+            try {
+                const data = JSON.parse(event.data);
+                
+                if (data.complete) {
+                    console.log('Check completed');
+                    checkButton.disabled = false;
+                    checkButton.innerHTML = '<i class="bi bi-play-circle"></i> Start Checking';
+                    eventSource.close();
+                    addResult('COMPLETE', 'Check completed successfully', 'success');
+                    return;
+                }
+                
+                // Display the raw response from the server
+                addResult(
+                    data.status || 'UNKNOWN',
+                    `Card: ${data.card}<br>
+                     Response: ${data.response}<br>
+                     Gateway: ${data.gateway}<br>
+                     Amount: $${data.amount}<br>
+                     Site: ${data.site}<br>
+                     Proxy: ${data.proxy}<br>
+                     API URL: ${data.api_url || 'N/A'}`,
+                    data.status.toLowerCase()
+                );
+                
+            } catch (e) {
+                console.error('Error parsing message:', e);
+                addResult('ERROR', `Failed to parse response: ${event.data}`, 'error');
+            }
+        };
+        
+        eventSource.onerror = function(error) {
+            console.error('EventSource error:', error);
             checkButton.disabled = false;
             checkButton.innerHTML = '<i class="bi bi-play-circle"></i> Start Checking';
-            if (eventSource) eventSource.close();
             
-            // Show error message
-            const errorEl = document.createElement('div');
-            errorEl.className = 'alert alert-danger mt-3';
-            errorEl.innerHTML = `<i class="bi bi-exclamation-triangle"></i> Connection error. Please try again.`;
-            resultsContainer.prepend(errorEl);
+            if (eventSource) {
+                eventSource.close();
+            }
+            
+            addResult('ERROR', 'Connection failed. Check console for details.', 'error');
         };
     });
     
-    function updateCounters() {
-        document.getElementById('hitsCount').textContent = hits;
-        document.getElementById('approvedCount').textContent = approved;
-        document.getElementById('declinedCount').textContent = declined;
-        document.getElementById('errorCount').textContent = errors;
+    function addResult(status, message, type) {
+        const resultEl = document.createElement('div');
+        resultEl.className = `alert alert-${getAlertType(type)} mt-2`;
+        resultEl.innerHTML = `
+            <strong>${status}:</strong><br>
+            ${message}
+            <hr>
+            <small>Time: ${new Date().toLocaleTimeString()}</small>
+        `;
+        resultsContainer.prepend(resultEl);
     }
     
-    function getStatusBadgeClass(status) {
+    function getAlertType(status) {
         switch(status) {
-            case 'HIT': return 'bg-info';
-            case 'APPROVED': return 'bg-success';
-            case 'APPROVED_OTP': return 'bg-warning text-dark';
-            case 'DECLINED': return 'bg-danger';
-            case 'EXPIRED': return 'bg-secondary';
-            case 'ERROR': return 'bg-warning text-dark';
-            default: return 'bg-dark';
+            case 'success': return 'success';
+            case 'info': return 'info';
+            case 'error': return 'danger';
+            default: return 'secondary';
         }
     }
     
     // Close connection when leaving the page
     window.addEventListener('beforeunload', function() {
-        if (eventSource) eventSource.close();
+        if (eventSource) {
+            eventSource.close();
+        }
     });
 });
 </script>
