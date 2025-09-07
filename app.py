@@ -1,4 +1,5 @@
 from flask import Flask, Response, render_template, request, jsonify, session, send_file, stream_with_context, redirect, url_for
+from flask import Response, stream_with_context, request, session, jsonify
 from au import process_card_au
 from chk import check_card
 from vbv import check_vbv_card
