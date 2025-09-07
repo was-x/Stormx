@@ -713,28 +713,38 @@ def shopify_check_process():
                 response = requests.get(api_url, proxies=proxy_dict, timeout=30)
                 data = response.json()
                 
-                response_upper = data.get('Response', '').upper()
+                response_text = data.get('Response', '').upper()
+                status_from_api = data.get('Status', '').lower()
                 price = data.get('Price', 'N/A')
                 gateway = data.get('Gateway', 'N/A')
-                if 'THANK YOU' in response_upper or 'INSUFFICIENT' in response_upper:
-                    bot_response = data.get('Response', 'Unknown')
-                    status = 'HIT'
                 
-                elif '3D' in response_upper or 'OTP' in response_upper:
-                    bot_response = data.get('Response', 'Unknown')
-                    status = 'APPROVED'
-                elif any(x in response_upper for x in ['INCORRECT_CVC', 'INCORRECT_ZIP', 'CVV', 'ZIP']):
-                    bot_response = data.get('Response', 'Unknown')
-                    status = 'APPROVED'
-                elif 'EXPIRED_CARD' in response_upper:
-                    bot_response = 'EXPIRE_CARD'
-                    status = 'EXPIRED'
+                # Determine status based on API response
+                if status_from_api == 'true':
+                    if '3D' in response_text or 'OTP' in response_text:
+                        bot_response = data.get('Response', 'Unknown')
+                        status = 'APPROVED_OTP'
+                    elif any(x in response_text for x in ['THANK YOU', 'INSUFFICIENT', 'APPROVED', 'SUCCESS']):
+                        bot_response = data.get('Response', 'Unknown')
+                        status = 'HIT'
+                    else:
+                        bot_response = data.get('Response', 'Unknown')
+                        status = 'APPROVED'
                 else:
-                    bot_response = data.get('Response', 'Unknown')
-                    status = 'DECLINED'
+                    if any(x in response_text for x in ['INCORRECT_CVC', 'INCORRECT_ZIP', 'CVV', 'ZIP']):
+                        bot_response = data.get('Response', 'Unknown')
+                        status = 'APPROVED'
+                    elif 'EXPIRED_CARD' in response_text:
+                        bot_response = 'EXPIRE_CARD'
+                        status = 'EXPIRED'
+                    elif 'DECLINED' in response_text:
+                        bot_response = data.get('Response', 'Unknown')
+                        status = 'DECLINED'
+                    else:
+                        bot_response = data.get('Response', 'Unknown')
+                        status = 'DECLINED'
                 
                 # Send approved cards to user's bot
-                if status in ['APPROVED', 'APPROVED_OTP']:
+                if status in ['APPROVED', 'APPROVED_OTP', 'HIT']:
                     try:
                         send_card_to_user_bot(
                             session['user_id'],
@@ -783,7 +793,7 @@ def shopify_check_process():
         yield f"data: {json.dumps({'complete': True})}\n\n"
     
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
-
+    
 @app.route('/gen', methods=['GET', 'POST'])
 def gen_card():
     if request.method == 'GET':
