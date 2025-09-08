@@ -6,6 +6,7 @@ from vbv import check_vbv_card
 from b3 import process_card_b3
 from svb import process_card_svb
 from pp import process_card_pp
+import random
 import json
 import threading
 import time
@@ -661,10 +662,26 @@ def shopify_check_process():
     
     # Handle both GET (from EventSource) and POST (from form) requests
     if request.method == 'POST':
-        # Get form data
-        sites = request.form.get('sites', '').strip().split('\n')
-        proxies = request.form.get('proxies', '').strip().split('\n')
-        cards = request.form.get('cards', '').strip().split('\n')
+        # Check if files were uploaded
+        sites_file = request.files.get('sites_file')
+        proxies_file = request.files.get('proxies_file')
+        cards_file = request.files.get('cards_file')
+        
+        # Process uploaded files or form data
+        if sites_file and sites_file.filename:
+            sites = sites_file.read().decode('utf-8').splitlines()
+        else:
+            sites = request.form.get('sites', '').strip().split('\n')
+            
+        if proxies_file and proxies_file.filename:
+            proxies = proxies_file.read().decode('utf-8').splitlines()
+        else:
+            proxies = request.form.get('proxies', '').strip().split('\n')
+            
+        if cards_file and cards_file.filename:
+            cards = cards_file.read().decode('utf-8').splitlines()
+        else:
+            cards = request.form.get('cards', '').strip().split('\n')
     else:  # GET request from EventSource
         sites = request.args.get('sites', '').strip().split('\n')
         proxies = request.args.get('proxies', '').strip().split('\n')
@@ -717,10 +734,10 @@ def shopify_check_process():
                 response_upper = data.get('Response', '').upper()
                 price = data.get('Price', 'N/A')
                 gateway = data.get('Gateway', 'N/A')
+                
                 if 'THANK YOU' in response_upper or 'INSUFFICIENT' in response_upper:
                     bot_response = data.get('Response', 'Unknown')
                     status = 'HIT'
-                
                 elif '3D' in response_upper or 'OTP' in response_upper:
                     bot_response = data.get('Response', 'Unknown')
                     status = 'APPROVED'
