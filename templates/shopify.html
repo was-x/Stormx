@@ -1,254 +1,337 @@
 {% extends "base.html" %}
-{% block title %}STORM X - Shopify Check{% endblock %}
+{% block title %}STORM X - Shopify Checker{% endblock %}
 
 {% block content %}
-<div class="container py-4">
-    <div class="glass-card p-4 mb-4">
-        <div class="text-center mb-4">
-            <h3 class="fw-bold"><i class="bi bi-cart me-2"></i> Shopify Card Checker</h3>
-            <p class="text-muted">Check cards against multiple Shopify sites with proxies</p>
-        </div>
-
-        <form id="shopifyForm">
-            <div class="row">
-                <div class="col-md-4 mb-3">
-                    <label for="sites" class="form-label fw-semibold">Shopify Sites (one per line)</label>
-                    <textarea class="form-control" id="sites" name="sites" rows="8" 
-                              placeholder="https://example-store.com" required></textarea>
-                </div>
-                
-                <div class="col-md-4 mb-3">
-                    <label for="proxies" class="form-label fw-semibold">Proxies (optional, one per line)</label>
-                    <textarea class="form-control" id="proxies" name="proxies" rows="8" 
-                              placeholder="ip:port:username:password&#10;or&#10;ip:port"></textarea>
-                    <div class="form-text">Format: ip:port or ip:port:user:pass</div>
-                </div>
-                
-                <div class="col-md-4 mb-3">
-                    <label for="cards" class="form-label fw-semibold">Cards (one per line)</label>
-                    <textarea class="form-control" id="cards" name="cards" rows="8" 
-                              placeholder="NUMBER|MM|YY|CVV" required></textarea>
-                    <div class="form-text">Format: Card Number|Exp Month|Exp Year|CVV</div>
-                </div>
-            </div>
-            
-            <div class="d-grid">
-                <button type="submit" class="btn btn-primary btn-lg" id="checkButton">
-                    <i class="bi bi-play-circle"></i> Start Checking
-                </button>
-            </div>
-        </form>
+<div class="glass-card p-4">
+    <div class="text-center mb-4">
+        <h3 class="fw-bold"><i class="bi bi-shop me-2"></i>Shopify Checker</h3>
+        <p class="text-muted mb-0">Check cards against Shopify sites</p>
     </div>
 
-    <div class="glass-card p-4">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4 class="fw-bold mb-0"><i class="bi bi-list-check"></i> Results</h4>
-            <div>
-                <span class="badge bg-info me-2">Hits: <span id="hitsCount">0</span></span>
-                <span class="badge bg-success me-2">Approved: <span id="approvedCount">0</span></span>
-                <span class="badge bg-danger me-2">Declined: <span id="declinedCount">0</span></span>
-                <span class="badge bg-warning text-dark">Errors: <span id="errorCount">0</span></span>
+    <!-- Form -->
+    <form id="shopifyForm" enctype="multipart/form-data" class="mb-4">
+        <!-- Sites Input -->
+        <div class="mb-3">
+            <label for="sites" class="form-label fw-semibold">Sites <span class="text-danger">*</span></label>
+            <div class="input-group">
+                <span class="input-group-text bg-primary text-white"><i class="bi bi-globe"></i></span>
+                <textarea class="form-control" id="sites" name="sites" rows="3" 
+                          placeholder="Enter Shopify sites (one per line)" required></textarea>
             </div>
+            <div class="form-text mt-1">Or upload a file:</div>
+            <input type="file" class="form-control mt-1" id="sites_file" name="sites_file" accept=".txt">
+        </div>
+
+        <!-- Cards Input -->
+        <div class="mb-3">
+            <label for="cards" class="form-label fw-semibold">Cards <span class="text-danger">*</span></label>
+            <div class="input-group">
+                <span class="input-group-text bg-primary text-white"><i class="bi bi-credit-card"></i></span>
+                <textarea class="form-control" id="cards" name="cards" rows="3" 
+                          placeholder="Enter cards in format: NUMBER|MM|YY|CVV (one per line)" required></textarea>
+            </div>
+            <div class="form-text mt-1">Or upload a file:</div>
+            <input type="file" class="form-control mt-1" id="cards_file" name="cards_file" accept=".txt">
+        </div>
+
+        <!-- Proxies Input -->
+        <div class="mb-3">
+            <label for="proxies" class="form-label fw-semibold">Proxies (Optional)</label>
+            <div class="input-group">
+                <span class="input-group-text bg-secondary text-white"><i class="bi bi-shield-lock"></i></span>
+                <textarea class="form-control" id="proxies" name="proxies" rows="2" 
+                          placeholder="Enter proxies in format: ip:port or ip:port:user:pass (one per line)"></textarea>
+            </div>
+            <div class="form-text mt-1">Or upload a file:</div>
+            <input type="file" class="form-control mt-1" id="proxies_file" name="proxies_file" accept=".txt">
+        </div>
+
+        <div class="d-grid">
+            <button type="submit" class="btn btn-primary btn-lg" id="checkButton">
+                <i class="bi bi-play-circle"></i> Start Checking
+            </button>
+        </div>
+    </form>
+
+    <!-- Progress Bar -->
+    <div class="progress mb-3 d-none" id="progressContainer" style="height: 20px;">
+        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+    </div>
+
+    <!-- Results Section -->
+    <div class="mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="fw-bold mb-0"><i class="bi bi-list-check"></i> Results</h5>
+            <span class="badge bg-info" id="progress">0/0</span>
         </div>
         
-        <div id="resultsContainer" style="max-height: 500px; overflow-y: auto;">
-            <div class="text-center text-muted py-5" id="emptyState">
-                <i class="bi bi-inbox display-4 d-block mb-2"></i>
-                <p>No results yet. Start checking to see results here.</p>
-            </div>
+        <div id="resultsContainer" class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+            <table class="table table-sm table-hover">
+                <thead class="sticky-top" style="background: var(--bs-dark);">
+                    <tr>
+                        <th>Card</th>
+                        <th>Status</th>
+                        <th>Response</th>
+                        <th>Site</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsTable">
+                    <!-- Results will be added here -->
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="mt-3 text-center">
+            <button id="exportBtn" class="btn btn-outline-success btn-sm d-none">
+                <i class="bi bi-download"></i> Export Results
+            </button>
         </div>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<style>
-    .result-card {
-        border-left: 4px solid #6c757d;
-        margin-bottom: 12px;
-        transition: all 0.3s ease;
-        border-radius: 8px;
-        padding: 15px;
-    }
-    .result-card.hit {
-        border-left-color: #17a2b8;
-        background-color: rgba(23, 162, 184, 0.05);
-    }
-    .result-card.approved {
-        border-left-color: #198754;
-        background-color: rgba(25, 135, 84, 0.05);
-    }
-    .result-card.declined {
-        border-left-color: #dc3545;
-        background-color: rgba(220, 53, 69, 0.05);
-    }
-    .result-card.otp {
-        border-left-color: #fd7e14;
-        background-color: rgba(253, 126, 20, 0.05);
-    }
-    .result-card.expired {
-        border-left-color: #6c757d;
-        background-color: rgba(108, 117, 125, 0.05);
-    }
-    .result-card.error {
-        border-left-color: #ffc107;
-        background-color: rgba(255, 193, 7, 0.05);
-    }
-    .card-number {
-        font-family: monospace;
-        font-size: 0.9rem;
-    }
-    .site-url {
-        max-width: 200px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .result-details {
-        display: grid;
-        grid-template-columns: 120px 1fr;
-        gap: 8px;
-        font-size: 0.85rem;
-    }
-    .result-label {
-        font-weight: 600;
-        color: #6c757d;
-    }
-    .result-value {
-        word-break: break-all;
-    }
-    .status-badge {
-        font-size: 0.75rem;
-        padding: 0.35em 0.65em;
-    }
-    body.dark-mode .result-label {
-        color: #a0aec0;
-    }
-</style>
-
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('shopifyForm');
-    const resultsContainer = document.getElementById('resultsContainer');
-    const emptyState = document.getElementById('emptyState');
-    const checkButton = document.getElementById('checkButton');
+    const shopifyForm = document.getElementById('shopifyForm');
+    const resultsTable = document.getElementById('resultsTable');
+    const exportBtn = document.getElementById('exportBtn');
+    const progress = document.getElementById('progress');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
     
     let eventSource = null;
+    let results = [];
+    let totalCards = 0;
+    let processedCards = 0;
     
-    form.addEventListener('submit', function(e) {
+    shopifyForm.addEventListener('submit', function(e) {
         e.preventDefault();
         
-        const sites = document.getElementById('sites').value.trim();
-        const proxies = document.getElementById('proxies').value.trim();
-        const cards = document.getElementById('cards').value.trim();
+        // Get form data
+        const formData = new FormData(shopifyForm);
+        const sites = formData.get('sites').split('\n').filter(s => s.trim());
+        const cards = formData.get('cards').split('\n').filter(c => c.trim());
         
-        if (!sites || !cards) {
-            alert('Please provide at least one site and one card');
+        if (!sites.length || !cards.length) {
+            alert('Sites and cards are required!');
             return;
         }
         
+        totalCards = cards.length;
+        processedCards = 0;
+        results = [];
+        updateProgress();
+        
+        // Show progress bar
+        progressContainer.classList.remove('d-none');
+        progressBar.style.width = '0%';
+        progressBar.textContent = '0%';
+        
         // Clear previous results
-        resultsContainer.innerHTML = '';
-        emptyState.classList.add('d-none');
+        resultsTable.innerHTML = '';
+        exportBtn.classList.add('d-none');
         
-        // Disable button and show loading state
-        checkButton.disabled = true;
-        checkButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
+        // Disable form
+        document.getElementById('checkButton').disabled = true;
+        document.getElementById('checkButton').innerHTML = '<span class="spinner-border spinner-border-sm"></span> Checking...';
         
-        // Close previous connection if exists
-        if (eventSource) {
-            eventSource.close();
-        }
-        
-        // Create URL with query parameters
+        // Start SSE connection
         const params = new URLSearchParams();
-        params.append('sites', sites);
-        params.append('proxies', proxies);
-        params.append('cards', cards);
+        params.append('sites', sites.join('\n'));
+        params.append('cards', cards.join('\n'));
         
-        console.log('Connecting to:', '/shopify_check?' + params.toString());
+        if (formData.get('proxies')) {
+            params.append('proxies', formData.get('proxies'));
+        }
         
         eventSource = new EventSource('/shopify_check?' + params.toString());
         
-        eventSource.onopen = function() {
-            console.log('EventSource connection opened');
-            addResult('CONNECTION', 'Connection established with server', 'info');
-        };
-        
         eventSource.onmessage = function(event) {
-            console.log('Received message:', event.data);
+            const data = JSON.parse(event.data);
             
-            try {
-                const data = JSON.parse(event.data);
-                
-                if (data.complete) {
-                    console.log('Check completed');
-                    checkButton.disabled = false;
-                    checkButton.innerHTML = '<i class="bi bi-play-circle"></i> Start Checking';
-                    eventSource.close();
-                    addResult('COMPLETE', 'Check completed successfully', 'success');
-                    return;
-                }
-                
-                // Display the raw response from the server
-                addResult(
-                    data.status || 'UNKNOWN',
-                    `Card: ${data.card}<br>
-                     Response: ${data.response}<br>
-                     Gateway: ${data.gateway}<br>
-                     Amount: $${data.amount}<br>
-                     Site: ${data.site}<br>
-                     Proxy: ${data.proxy}<br>
-                     API URL: ${data.api_url || 'N/A'}`,
-                    data.status.toLowerCase()
-                );
-                
-            } catch (e) {
-                console.error('Error parsing message:', e);
-                addResult('ERROR', `Failed to parse response: ${event.data}`, 'error');
+            if (data.complete) {
+                // Check completed
+                eventSource.close();
+                document.getElementById('checkButton').disabled = false;
+                document.getElementById('checkButton').innerHTML = '<i class="bi bi-play-circle"></i> Start Checking';
+                exportBtn.classList.remove('d-none');
+                progressBar.classList.remove('progress-bar-animated');
+                return;
             }
+            
+            // Add result to table
+            addResultToTable(data);
+            results.push(data);
+            processedCards++;
+            updateProgress();
+            
+            // Update progress bar
+            const progressPercent = Math.round((processedCards / totalCards) * 100);
+            progressBar.style.width = `${progressPercent}%`;
+            progressBar.textContent = `${progressPercent}%`;
         };
         
-        eventSource.onerror = function(error) {
-            console.error('EventSource error:', error);
-            checkButton.disabled = false;
-            checkButton.innerHTML = '<i class="bi bi-play-circle"></i> Start Checking';
-            
-            if (eventSource) {
-                eventSource.close();
-            }
-            
-            addResult('ERROR', 'Connection failed. Check console for details.', 'error');
+        eventSource.onerror = function() {
+            eventSource.close();
+            document.getElementById('checkButton').disabled = false;
+            document.getElementById('checkButton').innerHTML = '<i class="bi bi-play-circle"></i> Start Checking';
+            alert('Connection error occurred');
         };
     });
     
-    function addResult(status, message, type) {
-        const resultEl = document.createElement('div');
-        resultEl.className = `alert alert-${getAlertType(type)} mt-2`;
-        resultEl.innerHTML = `
-            <strong>${status}:</strong><br>
-            ${message}
-            <hr>
-            <small>Time: ${new Date().toLocaleTimeString()}</small>
+    function addResultToTable(data) {
+        const row = document.createElement('tr');
+        
+        // Status badge color
+        let badgeClass = 'secondary';
+        if (data.status === 'HIT' || data.status === 'APPROVED') badgeClass = 'success';
+        else if (data.status === 'DECLINED') badgeClass = 'danger';
+        else if (data.status === 'ERROR') badgeClass = 'warning';
+        else if (data.status === 'EXPIRED') badgeClass = 'info';
+        
+        // Shorten card number for mobile display
+        const cardParts = data.card.split('|');
+        const shortCard = cardParts[0].substring(0, 6) + '...' + cardParts[0].substring(cardParts[0].length - 4);
+        
+        row.innerHTML = `
+            <td class="small">${shortCard}</td>
+            <td><span class="badge bg-${badgeClass}">${data.status}</span></td>
+            <td class="small">${truncateText(data.response, 20)}</td>
+            <td class="small">${truncateText(data.site, 15)}</td>
         `;
-        resultsContainer.prepend(resultEl);
+        
+        // Add click to show full details
+        row.setAttribute('data-bs-toggle', 'modal');
+        row.setAttribute('data-bs-target', '#detailsModal');
+        row.setAttribute('onclick', `showDetails(${JSON.stringify(data).replace(/"/g, '&quot;')})`);
+        
+        resultsTable.appendChild(row);
+        
+        // Scroll to bottom
+        resultsContainer.scrollTop = resultsContainer.scrollHeight;
     }
     
-    function getAlertType(status) {
-        switch(status) {
-            case 'success': return 'success';
-            case 'info': return 'info';
-            case 'error': return 'danger';
-            default: return 'secondary';
-        }
+    function updateProgress() {
+        progress.textContent = `${processedCards}/${totalCards}`;
     }
     
-    // Close connection when leaving the page
-    window.addEventListener('beforeunload', function() {
-        if (eventSource) {
-            eventSource.close();
-        }
+    function truncateText(text, maxLength) {
+        return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+    }
+    
+    // Export results
+    exportBtn.addEventListener('click', function() {
+        if (results.length === 0) return;
+        
+        let csvContent = "Card,Status,Response,Gateway,Amount,Site,Proxy\n";
+        results.forEach(result => {
+            csvContent += `"${result.card}","${result.status}","${result.response}","${result.gateway}","${result.amount}","${result.site}","${result.proxy}"\n`;
+        });
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        
+        link.setAttribute("href", url);
+        link.setAttribute("download", "shopify_results.csv");
+        link.style.visibility = 'hidden';
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     });
 });
+
+// Show details in modal
+function showDetails(data) {
+    const modalBody = `
+        <div class="row">
+            <div class="col-12 mb-2">
+                <strong>Card:</strong> ${data.card}
+            </div>
+            <div class="col-6 mb-2">
+                <strong>Status:</strong> <span class="badge bg-${data.status === 'HIT' || data.status === 'APPROVED' ? 'success' : data.status === 'DECLINED' ? 'danger' : data.status === 'ERROR' ? 'warning' : 'info'}">${data.status}</span>
+            </div>
+            <div class="col-6 mb-2">
+                <strong>Amount:</strong> ${data.amount}
+            </div>
+            <div class="col-12 mb-2">
+                <strong>Response:</strong> ${data.response}
+            </div>
+            <div class="col-6 mb-2">
+                <strong>Gateway:</strong> ${data.gateway}
+            </div>
+            <div class="col-6 mb-2">
+                <strong>Proxy:</strong> ${data.proxy || 'None'}
+            </div>
+            <div class="col-12 mb-2">
+                <strong>Site:</strong> ${data.site}
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('detailsModalBody').innerHTML = modalBody;
+}
 </script>
+
+<!-- Details Modal -->
+<div class="modal fade" id="detailsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content glass-card">
+            <div class="modal-header">
+                <h5 class="modal-title">Check Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="detailsModalBody">
+                <!-- Details will be inserted here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Mobile optimization */
+@media (max-width: 768px) {
+    .glass-card {
+        margin: 0;
+        border-radius: 0;
+        min-height: 100vh;
+    }
+    
+    .table-responsive {
+        font-size: 0.8rem;
+    }
+    
+    .badge {
+        font-size: 0.7rem;
+    }
+}
+
+/* Custom scrollbar for results */
+#resultsContainer::-webkit-scrollbar {
+    width: 6px;
+}
+
+#resultsContainer::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+
+#resultsContainer::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 10px;
+}
+
+#resultsContainer::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+/* Input group styling */
+.input-group-text {
+    min-width: 45px;
+    justify-content: center;
+}
+</style>
 {% endblock %}
