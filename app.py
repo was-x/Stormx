@@ -746,7 +746,8 @@ def mass_check():
     # Check credits upfront
     if user['credits'] < card_count:
         def error_generate():
-            yield f"data: {json.dumps({'error': f'Insufficient credits. You have {user["credits"]} but need {card_count}'})}\n\n"
+            error_msg = f'Insufficient credits. You have {user["credits"]} but need {card_count}'
+            yield f"data: {json.dumps({'error': error_msg})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
     # Deduct credits for all cards upfront
