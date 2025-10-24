@@ -24,46 +24,88 @@ import re
 app = Flask(__name__)
 app.secret_key = 'storm_x_secret_key_2025'
 
-def init_db():
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    # Enable WAL mode for better concurrency
-    c.execute("PRAGMA journal_mode=WAL;")
-    c.execute('''CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        telegram_id INTEGER UNIQUE,
-        username TEXT,
-        first_name TEXT,
-        last_name TEXT,
-        access_key TEXT UNIQUE,
-        credits INTEGER DEFAULT 100,
-        bot_token TEXT,
-        chat_id TEXT,
-        approved_count INTEGER DEFAULT 0,
-        declined_count INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS access_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        access_key TEXT,
-        ip_address TEXT,
-        accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS card_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        card_data TEXT,
-        status TEXT,
-        gateway TEXT,
-        response TEXT,
-        amount TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
-    conn.commit()
-    conn.close()
+# Cloud Storage Configuration
+JSON_API_URL = "https://json-api.stormx.pw"
+API_KEY = "DARK-STORMX-DEEPX"
 
-init_db()
+# File names for cloud storage
+USERS_FILE = "St_users"
+ACCESS_LOGS_FILE = "St_access_logs"
+CARD_LOGS_FILE = "St_card_logs"
+ONLINE_USERS_FILE = "St_online_users"
+STATS_FILE = "St_stats"
+LEADERBOARD_FILE = "St_leaderboard"
+
+def load_json(file_name, default_data):
+    """Load data from cloud JSON storage"""
+    try:
+        response = requests.get(f"{JSON_API_URL}/read?file={file_name}.json", timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return data
+    except Exception as e:
+        print(f"Error loading {file_name}: {e}")
+    
+    return default_data
+
+def save_json(file_name, data):
+    """Save data to cloud JSON storage"""
+    try:
+        response = requests.post(
+            f"{JSON_API_URL}/write?file={file_name}.json",
+            headers={
+                "Content-Type": "application/json",
+                "X-API-Key": API_KEY
+            },
+            json=data,
+            timeout=10
+        )
+        return response.status_code == 200
+    except Exception as e:
+        print(f"Error saving {file_name}: {e}")
+        return False
+
+def init_cloud_storage():
+    """Initialize cloud storage with default data if needed"""
+    # Initialize users
+    users = load_json(USERS_FILE, {})
+    if not users:
+        save_json(USERS_FILE, {})
+    
+    # Initialize access logs
+    access_logs = load_json(ACCESS_LOGS_FILE, [])
+    if not access_logs:
+        save_json(ACCESS_LOGS_FILE, [])
+    
+    # Initialize card logs
+    card_logs = load_json(CARD_LOGS_FILE, [])
+    if not card_logs:
+        save_json(CARD_LOGS_FILE, [])
+    
+    # Initialize online users
+    online_users = load_json(ONLINE_USERS_FILE, {})
+    if not online_users:
+        save_json(ONLINE_USERS_FILE, {})
+    
+    # Initialize stats
+    stats = load_json(STATS_FILE, {
+        'total_checks': 0,
+        'total_approved': 0,
+        'total_declined': 0,
+        'live_users': 0,
+        'peak_users': 0
+    })
+    save_json(STATS_FILE, stats)
+    
+    # Initialize leaderboard
+    leaderboard = load_json(LEADERBOARD_FILE, {
+        'top_checkers': [],
+        'top_approvers': [],
+        'last_updated': None
+    })
+    save_json(LEADERBOARD_FILE, leaderboard)
+
+init_cloud_storage()
 
 # Telegram Bot Setup
 TELEGRAM_BOT_TOKEN = "8375805927:AAHYRfKe55Yb1jenqkT9mHkOAPmsl95pKfs"
@@ -73,6 +115,219 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 results = {}
 result_lock = threading.Lock()
 
+# Online users tracking
+online_users = {}
+online_users_lock = threading.Lock()
+
+# -----------------------
+# Cloud Database Functions
+# -----------------------
+def get_user_by_telegram_id(telegram_id):
+    users = load_json(USERS_FILE, {})
+    return users.get(str(telegram_id))
+
+def get_user_by_access_key(access_key):
+    users = load_json(USERS_FILE, {})
+    for user in users.values():
+        if user.get('access_key') == access_key:
+            return user
+    return None
+
+def save_user(user_data):
+    users = load_json(USERS_FILE, {})
+    telegram_id = str(user_data['telegram_id'])
+    users[telegram_id] = user_data
+    return save_json(USERS_FILE, users)
+
+def update_user_credits(telegram_id, credit_change):
+    users = load_json(USERS_FILE, {})
+    user_id = str(telegram_id)
+    if user_id in users:
+        users[user_id]['credits'] = max(0, users[user_id].get('credits', 0) + credit_change)
+        save_json(USERS_FILE, users)
+        return users[user_id]['credits']
+    return 0
+
+def update_user_stats(telegram_id, status):
+    users = load_json(USERS_FILE, {})
+    user_id = str(telegram_id)
+    if user_id in users:
+        if status.lower() == 'approved':
+            users[user_id]['approved_count'] = users[user_id].get('approved_count', 0) + 1
+        else:
+            users[user_id]['declined_count'] = users[user_id].get('declined_count', 0) + 1
+        
+        # Update total checks count
+        users[user_id]['total_checks'] = users[user_id].get('total_checks', 0) + 1
+        save_json(USERS_FILE, users)
+        
+        # Update leaderboard
+        update_leaderboard()
+
+def log_card(telegram_id, card_data, status, gateway, response, amount=None):
+    card_logs = load_json(CARD_LOGS_FILE, [])
+    card_logs.append({
+        'telegram_id': telegram_id,
+        'card_data': card_data,
+        'status': status,
+        'gateway': gateway,
+        'response': response,
+        'amount': amount,
+        'created_at': datetime.now().isoformat()
+    })
+    # Keep only last 1000 logs to prevent file from growing too large
+    if len(card_logs) > 1000:
+        card_logs = card_logs[-1000:]
+    save_json(CARD_LOGS_FILE, card_logs)
+    
+    # Update global stats
+    stats = load_json(STATS_FILE, {
+        'total_checks': 0,
+        'total_approved': 0,
+        'total_declined': 0,
+        'live_users': 0,
+        'peak_users': 0
+    })
+    stats['total_checks'] = stats.get('total_checks', 0) + 1
+    if status.lower() == 'approved':
+        stats['total_approved'] = stats.get('total_approved', 0) + 1
+    else:
+        stats['total_declined'] = stats.get('total_declined', 0) + 1
+    save_json(STATS_FILE, stats)
+
+def log_access(telegram_id, access_key, ip_address):
+    access_logs = load_json(ACCESS_LOGS_FILE, [])
+    access_logs.append({
+        'telegram_id': telegram_id,
+        'access_key': access_key,
+        'ip_address': ip_address,
+        'accessed_at': datetime.now().isoformat()
+    })
+    # Keep only last 500 access logs
+    if len(access_logs) > 500:
+        access_logs = access_logs[-500:]
+    save_json(ACCESS_LOGS_FILE, access_logs)
+
+def update_online_users(user_id, username, action="login"):
+    """Update online users tracking"""
+    with online_users_lock:
+        online_users_data = load_json(ONLINE_USERS_FILE, {})
+        
+        if action == "login":
+            online_users_data[str(user_id)] = {
+                'username': username,
+                'last_active': datetime.now().isoformat(),
+                'ip': request.remote_addr,
+                'login_time': datetime.now().isoformat()
+            }
+        elif action == "logout":
+            online_users_data.pop(str(user_id), None)
+        elif action == "update":
+            if str(user_id) in online_users_data:
+                online_users_data[str(user_id)]['last_active'] = datetime.now().isoformat()
+        
+        # Remove users inactive for more than 15 minutes
+        current_time = datetime.now()
+        to_remove = []
+        for uid, data in online_users_data.items():
+            last_active = datetime.fromisoformat(data['last_active'])
+            if (current_time - last_active).total_seconds() > 900:  # 15 minutes
+                to_remove.append(uid)
+        
+        for uid in to_remove:
+            online_users_data.pop(uid, None)
+        
+        # Update live users count in stats
+        stats = load_json(STATS_FILE, {})
+        live_count = len(online_users_data)
+        stats['live_users'] = live_count
+        stats['peak_users'] = max(stats.get('peak_users', 0), live_count)
+        save_json(STATS_FILE, stats)
+        
+        save_json(ONLINE_USERS_FILE, online_users_data)
+        
+        return live_count
+
+def get_live_users_count():
+    """Get current live users count"""
+    online_users_data = load_json(ONLINE_USERS_FILE, {})
+    return len(online_users_data)
+
+def get_online_users():
+    """Get detailed online users information"""
+    online_users_data = load_json(ONLINE_USERS_FILE, {})
+    users_data = load_json(USERS_FILE, {})
+    
+    online_users_list = []
+    for user_id, online_data in online_users_data.items():
+        user_info = users_data.get(user_id, {})
+        last_active = datetime.fromisoformat(online_data['last_active'])
+        minutes_ago = int((datetime.now() - last_active).total_seconds() / 60)
+        
+        online_users_list.append({
+            'user_id': user_id,
+            'username': online_data.get('username', 'Unknown'),
+            'first_name': user_info.get('first_name', ''),
+            'last_active_minutes': minutes_ago,
+            'ip': online_data.get('ip', ''),
+            'total_checks': user_info.get('total_checks', 0),
+            'approved_count': user_info.get('approved_count', 0)
+        })
+    
+    # Sort by last active (most recent first)
+    online_users_list.sort(key=lambda x: x['last_active_minutes'])
+    return online_users_list
+
+def update_leaderboard():
+    """Update leaderboard with top users"""
+    users = load_json(USERS_FILE, {})
+    
+    # Prepare user data for leaderboard
+    user_stats = []
+    for user_id, user_data in users.items():
+        if user_data.get('total_checks', 0) > 0:  # Only include users with checks
+            user_stats.append({
+                'user_id': user_id,
+                'username': user_data.get('username') or user_data.get('first_name') or f"User_{user_id}",
+                'total_checks': user_data.get('total_checks', 0),
+                'approved_count': user_data.get('approved_count', 0),
+                'approval_rate': (user_data.get('approved_count', 0) / user_data.get('total_checks', 1)) * 100,
+                'credits': user_data.get('credits', 0)
+            })
+    
+    # Sort by total checks (descending)
+    top_checkers = sorted(user_stats, key=lambda x: x['total_checks'], reverse=True)[:10]
+    
+    # Sort by approved count (descending)
+    top_approvers = sorted(user_stats, key=lambda x: x['approved_count'], reverse=True)[:10]
+    
+    leaderboard_data = {
+        'top_checkers': top_checkers,
+        'top_approvers': top_approvers,
+        'last_updated': datetime.now().isoformat()
+    }
+    
+    save_json(LEADERBOARD_FILE, leaderboard_data)
+    return leaderboard_data
+
+def get_leaderboard():
+    """Get current leaderboard data"""
+    leaderboard = load_json(LEADERBOARD_FILE, {
+        'top_checkers': [],
+        'top_approvers': [],
+        'last_updated': None
+    })
+    
+    # Update if empty or older than 1 hour
+    if not leaderboard['top_checkers'] or not leaderboard['last_updated']:
+        return update_leaderboard()
+    
+    last_updated = datetime.fromisoformat(leaderboard['last_updated'])
+    if (datetime.now() - last_updated).total_seconds() > 3600:  # 1 hour
+        return update_leaderboard()
+    
+    return leaderboard
+
 # -----------------------
 # Telegram Bot Handlers
 # -----------------------
@@ -81,22 +336,27 @@ def send_welcome(message):
     # Generate access key
     access_key = str(uuid.uuid4())[:8].upper()
     
-    # Save user to database
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    try:
-        c.execute('''INSERT INTO users (telegram_id, username, first_name, last_name, access_key, credits)
-                     VALUES (?, ?, ?, ?, ?, 100)''',
-                 (message.from_user.id, message.from_user.username, 
-                  message.from_user.first_name, message.from_user.last_name, access_key))
-        conn.commit()
-    except sqlite3.IntegrityError:
-        # User already exists, get their access key
-        c.execute('SELECT access_key FROM users WHERE telegram_id = ?', (message.from_user.id,))
-        result = c.fetchone()
-        access_key = result[0] if result else "ERROR"
-    finally:
-        conn.close()
+    # Save user to cloud database
+    user_data = {
+        'telegram_id': message.from_user.id,
+        'username': message.from_user.username,
+        'first_name': message.from_user.first_name,
+        'last_name': message.from_user.last_name,
+        'access_key': access_key,
+        'credits': 100,
+        'bot_token': '',
+        'chat_id': '',
+        'approved_count': 0,
+        'declined_count': 0,
+        'total_checks': 0,
+        'created_at': datetime.now().isoformat()
+    }
+    
+    existing_user = get_user_by_telegram_id(message.from_user.id)
+    if existing_user:
+        access_key = existing_user.get('access_key', access_key)
+    else:
+        save_user(user_data)
     
     # Send welcome message with access key
     bot.reply_to(message, f"🚀 Welcome to STORM X Card Checker!\n\n"
@@ -106,13 +366,8 @@ def send_welcome(message):
 
 @bot.message_handler(commands=['credits'])
 def check_credits(message):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('SELECT credits FROM users WHERE telegram_id = ?', (message.from_user.id,))
-    result = c.fetchone()
-    credits = result[0] if result else 0
-    conn.close()
-    
+    user = get_user_by_telegram_id(message.from_user.id)
+    credits = user.get('credits', 0) if user else 0
     bot.reply_to(message, f"Your current credits: {credits}")
 
 # Start bot in a separate thread
@@ -137,61 +392,13 @@ def get_session_id():
         session['session_id'] = str(uuid.uuid4())
     return session['session_id']
 
-def get_user_by_access_key(access_key):
-    conn = sqlite3.connect('users.db')
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute('SELECT * FROM users WHERE access_key = ?', (access_key,))
-    user = c.fetchone()
-    conn.close()
-    return user
-
-def update_user_credits(user_id, credit_change):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('UPDATE users SET credits = credits + ? WHERE id = ?', (credit_change, user_id))
-    conn.commit()
-    conn.close()
-
-def update_user_stats(user_id, status):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    if status.lower() == 'approved':
-        c.execute('UPDATE users SET approved_count = approved_count + 1 WHERE id = ?', (user_id,))
-    else:
-        c.execute('UPDATE users SET declined_count = declined_count + 1 WHERE id = ?', (user_id,))
-    conn.commit()
-    conn.close()
-
-def log_card(user_id, card_data, status, gateway, response, amount=None):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('INSERT INTO card_logs (user_id, card_data, status, gateway, response, amount) VALUES (?, ?, ?, ?, ?, ?)',
-              (user_id, card_data, status, gateway, response, amount))
-    conn.commit()
-    conn.close()
-
-def log_access(user_id, access_key, ip_address):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('INSERT INTO access_logs (user_id, access_key, ip_address) VALUES (?, ?, ?)',
-              (user_id, access_key, ip_address))
-    conn.commit()
-    conn.close()
-
-def send_card_to_user_bot(user_id, result_entry):
-    conn = sqlite3.connect('users.db')
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute('SELECT bot_token, chat_id FROM users WHERE id = ?', (user_id,))
-    row = c.fetchone()
-    conn.close()
-
-    if not row or not row["bot_token"] or not row["chat_id"]:
+def send_card_to_user_bot(telegram_id, result_entry):
+    user = get_user_by_telegram_id(telegram_id)
+    if not user or not user.get('bot_token') or not user.get('chat_id'):
         return  # user hasn't set bot yet
 
-    bot_token = row["bot_token"]
-    chat_id = row["chat_id"]
+    bot_token = user['bot_token']
+    chat_id = user['chat_id']
 
     amount_text = f"💰 Amount: ${result_entry.get('amount', 'N/A')}\n" if result_entry.get('amount') else ""
     
@@ -214,7 +421,7 @@ def send_card_to_user_bot(user_id, result_entry):
             timeout=10
         )
     except Exception as e:
-        print(f"Failed to send message to user {user_id}: {e}")
+        print(f"Failed to send message to user {telegram_id}: {e}")
 
 # -----------------------
 # Middleware to Check Access
@@ -226,7 +433,7 @@ def check_access():
         return
     
     # Check if user has valid access key in session
-    if 'access_key' not in session or 'user_id' not in session:
+    if 'access_key' not in session or 'telegram_id' not in session:
         return redirect(url_for('login'))
     
     # Verify the access key is still valid
@@ -235,6 +442,9 @@ def check_access():
         session.clear()
         return redirect(url_for('login'))
     
+    # Update online users
+    update_online_users(session['telegram_id'], session.get('username'), "update")
+    
     # Check if user has credits
     if user['credits'] <= 0 and request.endpoint not in ['profile', 'logout', 'index']:
         return redirect(url_for('profile'))
@@ -242,7 +452,7 @@ def check_access():
 @app.route('/login')
 def login():
     # If user is already logged in, redirect to home
-    if 'user_id' in session and 'access_key' in session:
+    if 'telegram_id' in session and 'access_key' in session:
         # Verify the access key is still valid
         user = get_user_by_access_key(session['access_key'])
         if user:
@@ -257,12 +467,15 @@ def verify_access():
     
     if user:
         session['access_key'] = access_key
-        session['user_id'] = user['id']
-        session['username'] = user['username'] or user['first_name'] or f"User_{user['id']}"
+        session['telegram_id'] = user['telegram_id']
+        session['username'] = user['username'] or user['first_name'] or f"User_{user['telegram_id']}"
         session['credits'] = user['credits']
         
         # Log the access
-        log_access(user['id'], access_key, request.remote_addr)
+        log_access(user['telegram_id'], access_key, request.remote_addr)
+        
+        # Update online users
+        update_online_users(user['telegram_id'], session['username'], "login")
         
         return jsonify({'success': True, 'message': 'Access granted!', 'redirect': url_for('index')})
     else:
@@ -270,6 +483,10 @@ def verify_access():
 
 @app.route('/logout')
 def logout():
+    # Update online users
+    if 'telegram_id' in session:
+        update_online_users(session['telegram_id'], session.get('username'), "logout")
+    
     session.clear()
     return redirect(url_for('login'))
 
@@ -278,27 +495,52 @@ def logout():
 # -----------------------
 @app.route('/')
 def index():
-    if 'user_id' not in session:
+    if 'telegram_id' not in session:
         return redirect(url_for('login'))
     
     # Get user stats
-    conn = sqlite3.connect('users.db')
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute('SELECT approved_count, declined_count FROM users WHERE id = ?', (session['user_id'],))
-    user_stats = c.fetchone()
-    conn.close()
-    
-    approved = user_stats['approved_count'] if user_stats else 0
-    declined = user_stats['declined_count'] if user_stats else 0
+    user = get_user_by_telegram_id(session['telegram_id'])
+    approved = user.get('approved_count', 0) if user else 0
+    declined = user.get('declined_count', 0) if user else 0
     total = approved + declined
+    
+    # Get global stats
+    stats = load_json(STATS_FILE, {
+        'total_checks': 0,
+        'total_approved': 0,
+        'total_declined': 0,
+        'live_users': 0,
+        'peak_users': 0
+    })
+    
+    # Get leaderboard data
+    leaderboard = get_leaderboard()
+    
+    # Get online users
+    online_users = get_online_users()
     
     return render_template('index.html', 
                           username=session.get('username'), 
                           credits=session.get('credits', 0),
                           approved_count=approved,
                           declined_count=declined,
-                          total_checks=total)
+                          total_checks=total,
+                          live_users=stats.get('live_users', 0),
+                          total_users_checks=stats.get('total_checks', 0),
+                          leaderboard=leaderboard,
+                          online_users=online_users)
+
+@app.route('/get_leaderboard')
+def get_leaderboard_route():
+    """API endpoint to get leaderboard data"""
+    leaderboard = get_leaderboard()
+    return jsonify(leaderboard)
+
+@app.route('/get_online_users')
+def get_online_users_route():
+    """API endpoint to get online users data"""
+    online_users = get_online_users()
+    return jsonify({'online_users': online_users})
 
 @app.route('/single')
 def single_check():
@@ -333,38 +575,31 @@ def bin_lookup():
 
 @app.route('/profile')
 def profile():
-    if 'user_id' not in session:
+    if 'telegram_id' not in session:
         return redirect(url_for('login'))
     
-    conn = sqlite3.connect('users.db')
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-
-    c.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],))
-    user = c.fetchone()
-
+    user = get_user_by_telegram_id(session['telegram_id'])
+    
     # Get access logs
-    c.execute('SELECT * FROM access_logs WHERE user_id = ? ORDER BY accessed_at DESC LIMIT 5', (session['user_id'],))
-    access_logs = c.fetchall()
+    access_logs = load_json(ACCESS_LOGS_FILE, [])
+    user_access_logs = [log for log in access_logs if log.get('telegram_id') == session['telegram_id']][-5:]
     
     # Get recent card checks
-    c.execute('SELECT * FROM card_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 10', (session['user_id'],))
-    card_logs = c.fetchall()
-    
-    conn.close()
+    card_logs = load_json(CARD_LOGS_FILE, [])
+    user_card_logs = [log for log in card_logs if log.get('telegram_id') == session['telegram_id']][-10:]
     
     return render_template(
         'profile.html',
         username=session.get('username'),
         credits=session.get('credits', 0),
         user=user,
-        access_logs=access_logs,
-        card_logs=card_logs
+        access_logs=user_access_logs,
+        card_logs=user_card_logs
     )
 
 @app.route('/check_card', methods=['POST'])
 def check_card_route():
-    if 'user_id' not in session or 'access_key' not in session:
+    if 'telegram_id' not in session or 'access_key' not in session:
         return jsonify({'error': 'Authentication required'}), 401
 
     user = get_user_by_access_key(session['access_key'])
@@ -398,14 +633,14 @@ def check_card_route():
         return jsonify({'error': 'Invalid gateway selected'}), 400
 
     # Deduct credits
-    update_user_credits(session['user_id'], -1)
-    session['credits'] = max(0, user['credits'] - 1)
+    new_credits = update_user_credits(session['telegram_id'], -1)
+    session['credits'] = new_credits
     
     # Update user stats
-    update_user_stats(session['user_id'], result.get('status', 'Error'))
+    update_user_stats(session['telegram_id'], result.get('status', 'Error'))
     
     # Log the card check
-    log_card(session['user_id'], card_data, result.get('status', 'Error'), 
+    log_card(session['telegram_id'], card_data, result.get('status', 'Error'), 
              result.get('gateway', gateway.upper()), result.get('response', 'Unknown error'))
 
     # BIN info lookup
@@ -441,7 +676,7 @@ def check_card_route():
 
     # Bot notification for approved cards
     if result_entry['status'].lower() == 'approved':
-        send_card_to_user_bot(session['user_id'], result_entry)
+        send_card_to_user_bot(session['telegram_id'], result_entry)
 
     return jsonify({
         'success': True,
@@ -490,7 +725,7 @@ def safe_process_card(gateway_func, card_data, timeout=12):
 
 @app.route("/mass_check", methods=["GET"])
 def mass_check():
-    if "user_id" not in session or "access_key" not in session:
+    if "telegram_id" not in session or "access_key" not in session:
         def error_generate():
             yield f"data: {json.dumps({'error': 'Authentication required'})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
@@ -515,8 +750,8 @@ def mass_check():
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
 
     # Deduct credits for all cards upfront
-    update_user_credits(session["user_id"], -card_count)
-    session["credits"] = max(0, user['credits'] - card_count)
+    new_credits = update_user_credits(session["telegram_id"], -card_count)
+    session["credits"] = new_credits
 
     def generate():
         processed_count = 0
@@ -555,8 +790,8 @@ def mass_check():
                 }
 
                 # Update user stats and log the card
-                update_user_stats(session["user_id"], res_data["status"])
-                log_card(session["user_id"], card_data, res_data["status"], 
+                update_user_stats(session["telegram_id"], res_data["status"])
+                log_card(session["telegram_id"], card_data, res_data["status"], 
                          res_data["gateway"], res_data["response"])
 
                 # Count successful checks (non-error responses)
@@ -576,7 +811,7 @@ def mass_check():
                             pass
                             
                         send_card_to_user_bot(
-                            session["user_id"],
+                            session["telegram_id"],
                             {
                                 "card": card_data,
                                 "status": res_data["status"],
@@ -617,20 +852,17 @@ def mass_check():
     
 @app.route('/save_bot', methods=['POST'])
 def save_bot():
-    if 'user_id' not in session:
+    if 'telegram_id' not in session:
         return redirect(url_for('login'))
 
     bot_token = request.form.get('bot_token', '').strip()
     chat_id = request.form.get('chat_id', '').strip()
 
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute(
-        "UPDATE users SET bot_token = ?, chat_id = ? WHERE id = ?",
-        (bot_token, chat_id, session['user_id'])
-    )
-    conn.commit()
-    conn.close()
+    user = get_user_by_telegram_id(session['telegram_id'])
+    if user:
+        user['bot_token'] = bot_token
+        user['chat_id'] = chat_id
+        save_user(user)
 
     return redirect(url_for('profile'))
 
@@ -651,13 +883,13 @@ def clear_results():
 
 @app.route('/shopify')
 def shopify_check():
-    if 'user_id' not in session or 'access_key' not in session:
+    if 'telegram_id' not in session or 'access_key' not in session:
         return redirect(url_for('login'))
     return render_template('shopify.html', username=session.get('username'), credits=session.get('credits', 0))
 
 @app.route('/shopify_check', methods=['GET', 'POST'])
 def shopify_check_process():
-    if 'user_id' not in session or 'access_key' not in session:
+    if 'telegram_id' not in session or 'access_key' not in session:
         return jsonify({'error': 'Authentication required'}), 401
     
     # Handle both GET (from EventSource) and POST (from form) requests
@@ -755,7 +987,7 @@ def shopify_check_process():
                 if status in ['APPROVED', 'APPROVED_OTP']:
                     try:
                         send_card_to_user_bot(
-                            session['user_id'],
+                            session['telegram_id'],
                             {
                                 'card': card,
                                 'status': status,
@@ -852,7 +1084,7 @@ def gen_card():
 
 @app.route('/fake_address')
 def fake_address():
-    if 'user_id' not in session or 'access_key' not in session:
+    if 'telegram_id' not in session or 'access_key' not in session:
         return redirect(url_for('login'))
     return render_template('fake_address.html', username=session.get('username'), credits=session.get('credits', 0))
 
@@ -925,9 +1157,7 @@ def generate_address():
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
-# -----------------------
-# BIN INFO
-# -----------------------
+
 @app.route('/bin_info', methods=['POST'])
 def bin_info():
     bin_number = request.form.get('bin', '').strip()
@@ -942,6 +1172,25 @@ def bin_info():
         return jsonify({'success': True, 'data': res.json()})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_live_stats')
+def get_live_stats():
+    """API endpoint to get live statistics"""
+    stats = load_json(STATS_FILE, {
+        'total_checks': 0,
+        'total_approved': 0,
+        'total_declined': 0,
+        'live_users': 0,
+        'peak_users': 0
+    })
+    
+    return jsonify({
+        'live_users': stats.get('live_users', 0),
+        'total_checks': stats.get('total_checks', 0),
+        'total_approved': stats.get('total_approved', 0),
+        'total_declined': stats.get('total_declined', 0),
+        'peak_users': stats.get('peak_users', 0)
+    })
 
 # -----------------------
 # MAIN
