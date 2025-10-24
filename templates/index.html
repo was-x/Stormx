@@ -3,29 +3,47 @@
 {% block content %}
 <style>
 /* -------------------------
+   Enhanced Color Scheme
+-------------------------- */
+:root {
+  --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+  --info-gradient: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+  --dark-gradient: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+  --gold-gradient: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+  --silver-gradient: linear-gradient(135deg, #C0C0C0 0%, #A9A9A9 100%);
+  --bronze-gradient: linear-gradient(135deg, #CD7F32 0%, #8B4513 100%);
+}
+
+/* -------------------------
    Hero Section
 -------------------------- */
 .hero-android {
-  background: linear-gradient(135deg, #0d6efd, #6f42c1);
+  background: var(--primary-gradient);
   color: #fff;
   border-radius: 24px;
   padding: 3rem 1.5rem 5rem;
   position: relative;
   overflow: hidden;
   text-align: center;
-  box-shadow: 0 20px 40px rgba(0,0,0,.25);
+  box-shadow: 0 20px 40px rgba(102, 126, 234, 0.3);
   transform-style: preserve-3d;
   perspective: 1000px;
   transition: transform 0.4s ease, box-shadow 0.4s ease;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 .hero-android:hover {
   transform: rotateX(4deg) rotateY(-4deg) scale(1.02);
-  box-shadow: 0 30px 60px rgba(0,0,0,.35);
+  box-shadow: 0 30px 60px rgba(102, 126, 234, 0.4);
 }
 .hero-android .title {
   font-weight: 900;
   font-size: clamp(1.6rem, 4vw, 2.6rem);
   margin-bottom: 12px;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.3);
 }
 .hero-android .lead {
   font-size: 1.1rem;
@@ -38,10 +56,14 @@
   font-weight: 600;
   box-shadow: 0 8px 20px rgba(0,0,0,.25);
   transition: transform 0.3s ease, box-shadow 0.3s ease;
+  background: var(--warning-gradient);
+  border: none;
+  color: #fff;
 }
 .hero-btn:hover {
   transform: scale(1.08);
-  box-shadow: 0 12px 28px rgba(0,0,0,.3);
+  box-shadow: 0 12px 28px rgba(0,0,0,.4);
+  color: #fff;
 }
 
 /* Wave Animation */
@@ -54,6 +76,7 @@
 }
 .wave path {
   animation: moveWave 12s linear infinite alternate;
+  fill: rgba(255, 255, 255, 0.15);
 }
 @keyframes moveWave {
   0% { transform: translateX(0); }
@@ -83,13 +106,16 @@
   background: #fff;
   box-shadow: 0 10px 25px rgba(0,0,0,.12);
   text-decoration: none;
-  color: #0d6efd;
+  color: #667eea;
   transition: transform 0.4s ease, box-shadow 0.4s ease;
   transform-style: preserve-3d;
+  border: 1px solid rgba(102, 126, 234, 0.1);
 }
 .quick-link:hover {
   transform: rotateX(6deg) rotateY(-6deg) scale(1.1);
-  box-shadow: 0 22px 45px rgba(0,140,255,0.45);
+  box-shadow: 0 22px 45px rgba(102, 126, 234, 0.25);
+  color: #667eea;
+  text-decoration: none;
 }
 .quick-link-icon {
   width: 70px;
@@ -115,12 +141,12 @@
 }
 
 /* Color Variants */
-.bg-purple { background: #6f42c1 !important; }
-.bg-primary { background: #0d6efd !important; }
-.bg-warning { background: #ffc107 !important; color: #212529 !important; }
-.bg-info    { background: #0dcaf0 !important; }
-.bg-success { background: #198754 !important; }
-.bg-secondary { background: #6c757d !important; }
+.bg-purple { background: var(--primary-gradient) !important; }
+.bg-primary { background: var(--secondary-gradient) !important; }
+.bg-warning { background: var(--warning-gradient) !important; color: #fff !important; }
+.bg-info    { background: var(--info-gradient) !important; color: #333 !important; }
+.bg-success { background: var(--success-gradient) !important; }
+.bg-secondary { background: var(--dark-gradient) !important; }
 
 /* -------------------------
    Stats Section
@@ -133,6 +159,7 @@
   box-shadow: 0 12px 28px rgba(0,0,0,.25);
   transition: transform 0.3s ease, box-shadow 0.3s ease;
   transform-style: preserve-3d;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 .stat-card:hover {
   transform: rotateX(5deg) rotateY(-5deg) scale(1.05);
@@ -142,22 +169,210 @@
   font-weight: 600;
   font-size: 1.1rem;
   margin-bottom: 1rem;
+  opacity: 0.9;
 }
 .stat-card h2 {
   font-weight: 900;
   font-size: 2.6rem;
   margin: 0;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
 /* Stat Colors */
 .stat-card.bg-primary {
-  background: linear-gradient(135deg,#0d6efd,#3a86ff);
+  background: var(--primary-gradient);
 }
 .stat-card.bg-success {
-  background: linear-gradient(135deg,#198754,#28a745);
+  background: var(--success-gradient);
 }
 .stat-card.bg-danger {
-  background: linear-gradient(135deg,#dc3545,#ff4d6d);
+  background: var(--danger-gradient);
+}
+.stat-card.bg-warning {
+  background: var(--warning-gradient);
+}
+
+/* -------------------------
+   Leaderboard Section
+-------------------------- */
+.leaderboard-section {
+  margin-bottom: 2rem;
+}
+.leaderboard-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 2rem;
+  box-shadow: 0 10px 25px rgba(0,0,0,.12);
+  border: 1px solid rgba(102, 126, 234, 0.1);
+  height: 100%;
+}
+.leaderboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid rgba(102, 126, 234, 0.1);
+}
+.leaderboard-title {
+  font-weight: 700;
+  font-size: 1.3rem;
+  color: #667eea;
+  margin: 0;
+}
+.leaderboard-badge {
+  background: var(--primary-gradient);
+  color: white;
+  padding: 0.3rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.leaderboard-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.leaderboard-item {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  margin-bottom: 0.8rem;
+  border-radius: 12px;
+  background: rgba(102, 126, 234, 0.05);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid rgba(102, 126, 234, 0.1);
+}
+.leaderboard-item:hover {
+  transform: translateX(5px);
+  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
+}
+.leaderboard-rank {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-right: 1rem;
+  flex-shrink: 0;
+}
+.rank-1 { background: var(--gold-gradient); color: #fff; }
+.rank-2 { background: var(--silver-gradient); color: #fff; }
+.rank-3 { background: var(--bronze-gradient); color: #fff; }
+.rank-other { background: var(--info-gradient); color: #333; }
+.leaderboard-user {
+  flex: 1;
+}
+.leaderboard-username {
+  font-weight: 600;
+  margin: 0;
+  color: #333;
+}
+.leaderboard-stats {
+  font-size: 0.85rem;
+  color: #666;
+  margin: 0.2rem 0 0 0;
+}
+.leaderboard-score {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #667eea;
+}
+
+/* -------------------------
+   Online Users Section
+-------------------------- */
+.online-users-card {
+  background: var(--dark-gradient);
+  color: #fff;
+  border-radius: 20px;
+  padding: 2rem;
+  box-shadow: 0 12px 28px rgba(0,0,0,.25);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.online-users-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+.live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.live-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #43e97b;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(67, 233, 123, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(67, 233, 123, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(67, 233, 123, 0); }
+}
+.online-user-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.online-user-item:last-child {
+  border-bottom: none;
+}
+.online-user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--primary-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: white;
+  font-size: 0.9rem;
+}
+.user-status {
+  font-size: 0.8rem;
+  color: #43e97b;
+}
+.user-stats {
+  text-align: right;
+}
+.user-checks {
+  font-weight: 600;
+  font-size: 1rem;
+}
+.user-approval {
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+/* -------------------------
+   Live Stats
+-------------------------- */
+.live-count {
+  font-size: 2.5rem;
+  font-weight: 900;
+  text-align: center;
+  margin: 1rem 0;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.live-label {
+  text-align: center;
+  opacity: 0.8;
+  font-size: 0.9rem;
 }
 
 /* -------------------------
@@ -167,20 +382,42 @@ body.dark-mode .quick-link {
   background: #1e1e1e;
   color: #e6edf3;
   box-shadow: 0 10px 25px rgba(0,0,0,.6);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 body.dark-mode .hero-android {
-  background: #1f1f1f;
+  background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
   color: #fff;
   box-shadow: 0 10px 25px rgba(0,0,0,.6);
 }
 body.dark-mode .stat-card.bg-primary {
-  background: linear-gradient(135deg,#0a58ca,#3a86ff);
+  background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
 }
 body.dark-mode .stat-card.bg-success {
-  background: linear-gradient(135deg,#157347,#28a745);
+  background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
 }
 body.dark-mode .stat-card.bg-danger {
-  background: linear-gradient(135deg,#bb2d3b,#ff4d6d);
+  background: linear-gradient(135deg, #c0392b 0%, #e74c3c 100%);
+}
+body.dark-mode .online-users-card {
+  background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%);
+}
+body.dark-mode .leaderboard-card {
+  background: #1e1e1e;
+  color: #e6edf3;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+body.dark-mode .leaderboard-title {
+  color: #e6edf3;
+}
+body.dark-mode .leaderboard-item {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+body.dark-mode .leaderboard-username {
+  color: #e6edf3;
+}
+body.dark-mode .leaderboard-stats {
+  color: #aaa;
 }
 </style>
 
@@ -189,11 +426,11 @@ body.dark-mode .stat-card.bg-danger {
   <span class="badge bg-light text-dark mb-2 px-3 py-1">Welcome</span>
   <h1 class="title">⚡ STORM X</h1>
   <p class="lead">Multi-Gateway Card Checker with Real-Time Insights</p>
-  <a href="{{ url_for('single_check') }}" class="btn btn-light hero-btn">
+  <a href="{{ url_for('single_check') }}" class="btn hero-btn">
     <i class="bi bi-play-circle-fill me-1"></i> Start Checking
   </a>
   <svg class="wave" viewBox="0 0 1440 120" preserveAspectRatio="none">
-    <path fill="rgba(255,255,255,.25)">
+    <path>
       <animate attributeName="d" dur="12s" repeatCount="indefinite"
         values="
         M0,64L80,69.3C160,75,320,85,480,85.3C640,85,800,75,960,69.3C1120,64,1280,64,1360,64L1440,64L1440,120L0,120Z;
@@ -239,53 +476,6 @@ body.dark-mode .stat-card.bg-danger {
 <section class="mb-5">
   <h2 class="fw-bold mb-3">Statistics</h2>
   <div class="row">
-    <div class="col-md-4 mb-3">
+    <div class="col-md-3 mb-3">
       <div class="stat-card bg-primary">
-        <h5>Total Checks</h5>
-        <h2 id="totalChecks">{{ total_checks }}</h2>
-      </div>
-    </div>
-    <div class="col-md-4 mb-3">
-      <div class="stat-card bg-success">
-        <h5>Approved</h5>
-        <h2 id="approvedCount">{{ approved_count }}</h2>
-      </div>
-    </div>
-    <div class="col-md-4 mb-3">
-      <div class="stat-card bg-danger">
-        <h5>Declined</h5>
-        <h2 id="declinedCount">{{ declined_count }}</h2>
-      </div>
-    </div>
-  </div>
-</section>
-
-<script>
-// Stats load + count-up animation
-async function loadStats() {
-  try {
-    const response = await fetch('/get_results');
-    const data = await response.json();
-    const results = data.results || [];
-    const totalChecks = results.length;
-    const approvedCount = results.filter(r => r.status && r.status.toLowerCase() === 'approved').length;
-    const declinedCount = totalChecks - approvedCount;
-    animateValue('totalChecks', 0, totalChecks, 1500);
-    animateValue('approvedCount', 0, approvedCount, 1500);
-    animateValue('declinedCount', 0, declinedCount, 1500);
-  } catch (err) { console.error('Failed to load stats:', err); }
-}
-function animateValue(id, start, end, duration) {
-  const obj = document.getElementById(id);
-  let startTimestamp = null;
-  const step = (ts) => {
-    if (!startTimestamp) startTimestamp = ts;
-    const progress = Math.min((ts - startTimestamp) / duration, 1);
-    obj.textContent = Math.floor(progress * (end - start) + start);
-    if (progress < 1) window.requestAnimationFrame(step);
-  };
-  window.requestAnimationFrame(step);
-}
-document.addEventListener('DOMContentLoaded', loadStats);
-</script>
-{% endblock %}
+        <h
