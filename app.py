@@ -108,7 +108,7 @@ def init_cloud_storage():
 init_cloud_storage()
 
 # Telegram Bot Setup
-TELEGRAM_BOT_TOKEN = "8375805927:AAHYRfKe55Yb1jenqkT9mHkOAPmsl95pKfs"
+TELEGRAM_BOT_TOKEN = "8415037768:AAE3V0UXxziP1VgqZnwNkUIM2HCagT18fgk"
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
 # Store results temporarily
