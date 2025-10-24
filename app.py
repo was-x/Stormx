@@ -42,7 +42,9 @@ def load_json(file_name, default_data):
         response = requests.get(f"{JSON_API_URL}/read?file={file_name}.json", timeout=10)
         if response.status_code == 200:
             data = response.json()
-            return data
+            # Ensure we return the expected data type
+            if isinstance(data, (dict, list)):
+                return data
     except Exception as e:
         print(f"Error loading {file_name}: {e}")
     
@@ -105,8 +107,49 @@ def init_cloud_storage():
     })
     save_json(LEADERBOARD_FILE, leaderboard)
 
-init_cloud_storage()
+# -----------------------
+# Cloud Database Functions
+# -----------------------
+def get_user_by_telegram_id(telegram_id):
+    users = load_json(USERS_FILE, {})
+    return users.get(str(telegram_id))
 
+def ensure_users_format():
+    """Ensure users data is in the correct dictionary format"""
+    users = load_json(USERS_FILE, {})
+    
+    # If users is already a dict, return it
+    if isinstance(users, dict):
+        return users
+    
+    # If users is a list, convert to dictionary
+    if isinstance(users, list):
+        users_dict = {}
+        for user in users:
+            if isinstance(user, dict) and 'telegram_id' in user:
+                users_dict[str(user['telegram_id'])] = user
+        save_json(USERS_FILE, users_dict)
+        return users_dict
+    
+    # If it's something else, return empty dict
+    return {}
+    
+def get_user_by_access_key(access_key):
+    users = load_json(USERS_FILE, {})
+    
+    # If users is a list, convert to dictionary format
+    if isinstance(users, list):
+        users = ensure_users_format()
+    
+    # Now search for user with matching access key
+    for user_id, user_data in users.items():
+        if isinstance(user_data, dict) and user_data.get('access_key') == access_key:
+            return user_data
+    
+    return None
+
+init_cloud_storage()
+ensure_users_format()
 # Telegram Bot Setup
 TELEGRAM_BOT_TOKEN = "8415037768:AAE3V0UXxziP1VgqZnwNkUIM2HCagT18fgk"
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
@@ -118,20 +161,6 @@ result_lock = threading.Lock()
 # Online users tracking
 online_users = {}
 online_users_lock = threading.Lock()
-
-# -----------------------
-# Cloud Database Functions
-# -----------------------
-def get_user_by_telegram_id(telegram_id):
-    users = load_json(USERS_FILE, {})
-    return users.get(str(telegram_id))
-
-def get_user_by_access_key(access_key):
-    users = load_json(USERS_FILE, {})
-    for user in users.values():
-        if user.get('access_key') == access_key:
-            return user
-    return None
 
 def save_user(user_data):
     users = load_json(USERS_FILE, {})
@@ -213,6 +242,10 @@ def update_online_users(user_id, username, action="login"):
     with online_users_lock:
         online_users_data = load_json(ONLINE_USERS_FILE, {})
         
+        # Ensure online_users_data is a dictionary
+        if not isinstance(online_users_data, dict):
+            online_users_data = {}
+        
         if action == "login":
             online_users_data[str(user_id)] = {
                 'username': username,
@@ -230,8 +263,16 @@ def update_online_users(user_id, username, action="login"):
         current_time = datetime.now()
         to_remove = []
         for uid, data in online_users_data.items():
-            last_active = datetime.fromisoformat(data['last_active'])
-            if (current_time - last_active).total_seconds() > 900:  # 15 minutes
+            # Ensure data is a dictionary
+            if not isinstance(data, dict):
+                to_remove.append(uid)
+                continue
+                
+            try:
+                last_active = datetime.fromisoformat(data.get('last_active', datetime.now().isoformat()))
+                if (current_time - last_active).total_seconds() > 900:  # 15 minutes
+                    to_remove.append(uid)
+            except (ValueError, TypeError):
                 to_remove.append(uid)
         
         for uid in to_remove:
@@ -247,7 +288,7 @@ def update_online_users(user_id, username, action="login"):
         save_json(ONLINE_USERS_FILE, online_users_data)
         
         return live_count
-
+        
 def get_live_users_count():
     """Get current live users count"""
     online_users_data = load_json(ONLINE_USERS_FILE, {})
@@ -259,10 +300,22 @@ def get_online_users():
     users_data = load_json(USERS_FILE, {})
     
     online_users_list = []
+    
+    # Ensure online_users_data is a dictionary
+    if not isinstance(online_users_data, dict):
+        return online_users_list
+    
     for user_id, online_data in online_users_data.items():
+        # Skip if online_data is not a dictionary
+        if not isinstance(online_data, dict):
+            continue
+            
         user_info = users_data.get(user_id, {})
-        last_active = datetime.fromisoformat(online_data['last_active'])
-        minutes_ago = int((datetime.now() - last_active).total_seconds() / 60)
+        try:
+            last_active = datetime.fromisoformat(online_data.get('last_active', datetime.now().isoformat()))
+            minutes_ago = int((datetime.now() - last_active).total_seconds() / 60)
+        except (ValueError, TypeError):
+            minutes_ago = 0
         
         online_users_list.append({
             'user_id': user_id,
@@ -282,16 +335,26 @@ def update_leaderboard():
     """Update leaderboard with top users"""
     users = load_json(USERS_FILE, {})
     
+    # Ensure users is a dictionary
+    if not isinstance(users, dict):
+        users = ensure_users_format()
+    
     # Prepare user data for leaderboard
     user_stats = []
     for user_id, user_data in users.items():
-        if user_data.get('total_checks', 0) > 0:  # Only include users with checks
+        # Skip if user_data is not a dictionary
+        if not isinstance(user_data, dict):
+            continue
+            
+        total_checks = user_data.get('total_checks', 0)
+        if total_checks > 0:  # Only include users with checks
+            approved_count = user_data.get('approved_count', 0)
             user_stats.append({
                 'user_id': user_id,
                 'username': user_data.get('username') or user_data.get('first_name') or f"User_{user_id}",
-                'total_checks': user_data.get('total_checks', 0),
-                'approved_count': user_data.get('approved_count', 0),
-                'approval_rate': (user_data.get('approved_count', 0) / user_data.get('total_checks', 1)) * 100,
+                'total_checks': total_checks,
+                'approved_count': approved_count,
+                'approval_rate': (approved_count / total_checks) * 100 if total_checks > 0 else 0,
                 'credits': user_data.get('credits', 0)
             })
     
@@ -319,11 +382,14 @@ def get_leaderboard():
     })
     
     # Update if empty or older than 1 hour
-    if not leaderboard['top_checkers'] or not leaderboard['last_updated']:
+    if not leaderboard.get('top_checkers') or not leaderboard.get('last_updated'):
         return update_leaderboard()
     
-    last_updated = datetime.fromisoformat(leaderboard['last_updated'])
-    if (datetime.now() - last_updated).total_seconds() > 3600:  # 1 hour
+    try:
+        last_updated = datetime.fromisoformat(leaderboard['last_updated'])
+        if (datetime.now() - last_updated).total_seconds() > 3600:  # 1 hour
+            return update_leaderboard()
+    except (ValueError, TypeError):
         return update_leaderboard()
     
     return leaderboard
@@ -468,8 +534,8 @@ def verify_access():
     if user:
         session['access_key'] = access_key
         session['telegram_id'] = user['telegram_id']
-        session['username'] = user['username'] or user['first_name'] or f"User_{user['telegram_id']}"
-        session['credits'] = user['credits']
+        session['username'] = user.get('username') or user.get('first_name') or f"User_{user['telegram_id']}"
+        session['credits'] = user.get('credits', 0)
         
         # Log the access
         log_access(user['telegram_id'], access_key, request.remote_addr)
@@ -490,9 +556,6 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# -----------------------
-# Protected Pages
-# -----------------------
 @app.route('/')
 def index():
     if 'telegram_id' not in session:
@@ -749,107 +812,6 @@ def mass_check():
             error_msg = f'Insufficient credits. You have {user["credits"]} but need {card_count}'
             yield f"data: {json.dumps({'error': error_msg})}\n\n"
         return Response(stream_with_context(error_generate()), mimetype="text/event-stream")
-
-    # Deduct credits for all cards upfront
-    new_credits = update_user_credits(session["telegram_id"], -card_count)
-    session["credits"] = new_credits
-
-    def generate():
-        processed_count = 0
-        successful_checks = 0
-        
-        for i, card_data in enumerate(card_list):
-            try:
-                result = None
-                
-                # Try the selected gateway first
-                if gateway == "au":
-                    result = safe_process_card(process_card_au, card_data, timeout=10)
-                elif gateway == "chk":
-                    result = safe_process_card(check_card, card_data, timeout=10)
-                elif gateway == "vbv":
-                    result = safe_process_card(check_vbv_card, card_data, timeout=15)
-                elif gateway == "b3":
-                    result = safe_process_card(process_card_b3, card_data, timeout=10)
-                elif gateway == "svb":
-                    result = safe_process_card(process_card_svb, card_data, timeout=10)
-                elif gateway == "pp":
-                    result = safe_process_card(process_card_pp, card_data, timeout=10)
-                else:
-                    result = {"status": "Error", "response": "Invalid gateway", "gateway": "N/A"}
-
-                # If the selected gateway failed, try fallback to VBV
-                if result.get("status") == "Error" and gateway != "vbv":
-                    result = safe_process_card(check_vbv_card, card_data, timeout=15)
-                    result["gateway"] = f"{gateway.upper()}→VBV(Fallback)"
-
-                res_data = {
-                    "card": card_data,
-                    "status": result.get("status", "Error"),
-                    "response": result.get("response", "Unknown error"),
-                    "gateway": result.get("gateway", gateway.upper()),
-                }
-
-                # Update user stats and log the card
-                update_user_stats(session["telegram_id"], res_data["status"])
-                log_card(session["telegram_id"], card_data, res_data["status"], 
-                         res_data["gateway"], res_data["response"])
-
-                # Count successful checks (non-error responses)
-                if result.get("status") != "Error":
-                    successful_checks += 1
-
-                # Send approved to user bot
-                if res_data["status"].lower() == "approved":
-                    try:
-                        bin_number = card_data[:6]
-                        bin_info = {}
-                        try:
-                            r = requests.get(f"https://bins.antipublic.cc/bins/{bin_number}", timeout=5)
-                            if r.status_code == 200:
-                                bin_info = r.json()
-                        except:
-                            pass
-                            
-                        send_card_to_user_bot(
-                            session["telegram_id"],
-                            {
-                                "card": card_data,
-                                "status": res_data["status"],
-                                "response": res_data["response"],
-                                "gateway": res_data["gateway"],
-                                "bin": bin_info,
-                                "timestamp": datetime.now().strftime("%H:%M:%S"),
-                            },
-                        )
-                    except Exception as bot_error:
-                        print(f"Bot notification failed: {bot_error}")
-
-                processed_count += 1
-                yield f"data: {json.dumps(res_data)}\n\n"
-
-                # Dynamic delay based on success rate
-                if successful_checks / max(1, processed_count) > 0.7:
-                    time.sleep(0.3)
-                else:
-                    time.sleep(1.0)
-
-            except Exception as e:
-                # Log the error but continue with next card
-                error_data = {
-                    "card": card_data,
-                    "status": "Error",
-                    "response": f"Processing failed: {str(e)}",
-                    "gateway": gateway.upper(),
-                }
-                yield f"data: {json.dumps(error_data)}\n\n"
-                time.sleep(1.0)  # Longer delay after error
-                continue
-
-        # Send completion message
-        yield f"data: {json.dumps({'complete': True, 'processed': processed_count, 'total': card_count, 'successful': successful_checks})}\n\n"
-
-    return Response(stream_with_context(generate()), mimetype="text/event-stream")
     
 @app.route('/save_bot', methods=['POST'])
 def save_bot():
@@ -1197,4 +1159,6 @@ def get_live_stats():
 # MAIN
 # -----------------------
 if __name__ == '__main__':
+    init_cloud_storage()
+    ensure_users_format()
     app.run(debug=True, host='0.0.0.0', port=5000)
