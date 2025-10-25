@@ -20,6 +20,8 @@ import telebot
 from telebot import types
 import os
 import re
+import secrets
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 app.secret_key = 'storm_x_secret_key_2025'
@@ -35,6 +37,12 @@ CARD_LOGS_FILE = "St_card_logs"
 ONLINE_USERS_FILE = "St_online_users"
 STATS_FILE = "St_stats"
 LEADERBOARD_FILE = "St_leaderboard"
+# Add these with your other file definitions
+ADMINS_FILE = "St_admins"
+PLANS_FILE = "St_plans"
+REDEEM_CODES_FILE = "St_redeem_codes"
+USER_PLANS_FILE = "St_user_plans"
+ADMIN_LOGS_FILE = "St_admin_logs"
 
 def load_json(file_name, default_data):
     """Load data from cloud JSON storage"""
@@ -106,6 +114,27 @@ def init_cloud_storage():
         'last_updated': None
     })
     save_json(LEADERBOARD_FILE, leaderboard)
+    
+    # Initialize admin files
+    admins = load_json(ADMINS_FILE, {})
+    if not admins:
+        # Create default owner
+        admins['owner'] = {
+            'username': 'Thedarkagain',
+            'password': 'Darkkboy336',  # Your new password
+            'role': 'owner',
+            'created_at': datetime.now().isoformat(),
+            'permissions': ['all']
+        }
+        save_json(ADMINS_FILE, admins)
+    
+    plans = load_json(PLANS_FILE, {})
+    if not plans:
+        save_json(PLANS_FILE, {})
+    
+    save_json(REDEEM_CODES_FILE, {})
+    save_json(USER_PLANS_FILE, {})
+    save_json(ADMIN_LOGS_FILE, [])
 
 # -----------------------
 # Cloud Database Functions
@@ -165,10 +194,17 @@ online_users_lock = threading.Lock()
 # Add these admin functions after your existing functions
 
 def verify_admin(username, password):
+    """Verify admin credentials against stored admin data"""
     admins = load_json(ADMINS_FILE, {})
+    
+    # Search through all admins
     for admin_id, admin_data in admins.items():
-        if admin_data.get('username') == username and admin_data.get('password') == password:
+        if (admin_data.get('username') == username and 
+            admin_data.get('password') == password):
+            # Add admin ID to the returned data
+            admin_data['id'] = admin_id
             return admin_data
+    
     return None
 
 def create_plan(plan_id, name, credits_per_day, validity_days, price=0, active=True):
@@ -701,6 +737,7 @@ def verify_access():
     else:
         return jsonify({'success': False, 'message': 'Invalid access key!'})
 
+
 @app.route('/logout')
 def logout():
     # Update online users
@@ -746,49 +783,119 @@ def index():
                           total_users_checks=stats.get('total_checks', 0),
                           leaderboard=leaderboard,
                           online_users=online_users)
-
-# Admin Login Route
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
+    # If admin is already logged in, redirect to admin dashboard
+    if 'admin_username' in session:
+        return redirect(url_for('admin_dashboard'))
+    
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
         
+        # Validate input
+        if not username or not password:
+            return jsonify({'success': False, 'message': 'Username and password are required'})
+        
+        # Verify admin credentials
         admin = verify_admin(username, password)
         if admin:
+            # Set admin session
             session['admin_username'] = admin['username']
             session['admin_role'] = admin['role']
             session['admin_permissions'] = admin.get('permissions', [])
-            return jsonify({'success': True, 'message': 'Login successful', 'redirect': url_for('admin_dashboard')})
+            session['admin_id'] = admin.get('id')  # Store admin ID if available
+            
+            # Log the admin login
+            log_admin_action(username, "Admin logged in")
+            
+            return jsonify({
+                'success': True, 
+                'message': 'Login successful', 
+                'redirect': url_for('admin_dashboard')
+            })
         else:
-            return jsonify({'success': False, 'message': 'Invalid credentials'})
+            return jsonify({'success': False, 'message': 'Invalid username or password'})
     
+    # GET request - show login form
     return render_template('admin_login.html')
 
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('admin_username', None)
-    session.pop('admin_role', None)
-    session.pop('admin_permissions', None)
-    return redirect(url_for('admin_login'))
 
-# Admin Dashboard
 @app.route('/admin/dashboard')
 def admin_dashboard():
+    # Check if admin is logged in
     if 'admin_username' not in session:
         return redirect(url_for('admin_login'))
     
+    # Get statistics for dashboard
     stats = {
         'total_users': len(get_all_users()),
         'total_plans': len(get_all_plans()),
         'active_user_plans': len(get_user_plans()),
-        'total_redeem_codes': len(get_redeem_codes())
+        'total_redeem_codes': len(get_redeem_codes()),
+        'live_users': get_live_users_count(),
+        'total_checks': load_json(STATS_FILE, {}).get('total_checks', 0),
+        'total_approved': load_json(STATS_FILE, {}).get('total_approved', 0)
     }
+    
+    # Get recent admin logs (last 10)
+    admin_logs = get_admin_logs()[-10:][::-1]  # Reverse to show latest first
+    
+    # Get recent card checks (last 10)
+    card_logs = load_json(CARD_LOGS_FILE, [])[-10:][::-1]
     
     return render_template('admin_dashboard.html', 
                          stats=stats,
                          username=session['admin_username'],
-                         role=session['admin_role'])
+                         role=session['admin_role'],
+                         permissions=session['admin_permissions'],
+                         admin_logs=admin_logs,
+                         recent_checks=card_logs)
+
+
+@app.route('/admin/logout')
+def admin_logout():
+    if 'admin_username' in session:
+        # Log the logout action
+        log_admin_action(session['admin_username'], "Admin logged out")
+        
+        # Clear admin session
+        session.pop('admin_username', None)
+        session.pop('admin_role', None)
+        session.pop('admin_permissions', None)
+        session.pop('admin_id', None)
+    
+    return redirect(url_for('admin_login'))
+
+
+# Admin authentication middleware
+@app.before_request
+def check_admin_access():
+    # Routes that don't require admin authentication
+    admin_public_routes = ['admin_login', 'static']
+    
+    # Check if the request is for an admin route
+    if request.endpoint and request.endpoint.startswith('admin_'):
+        if request.endpoint not in admin_public_routes:
+            if 'admin_username' not in session:
+                return redirect(url_for('admin_login'))
+            
+            # Check permissions for specific admin routes
+            admin_permissions = session.get('admin_permissions', [])
+            
+            # If user doesn't have 'all' permissions, check specific ones
+            if 'all' not in admin_permissions:
+                # Define permission requirements for each route
+                permission_map = {
+                    'admin_users': ['view_users', 'manage_users'],
+                    'admin_plans': ['manage_plans'],
+                    'admin_redeem_codes': ['manage_codes'],
+                    'admin_logs': ['view_logs']
+                }
+                
+                required_permissions = permission_map.get(request.endpoint, [])
+                if required_permissions and not any(perm in admin_permissions for perm in required_permissions):
+                    return jsonify({'success': False, 'message': 'Insufficient permissions'}), 403
 
 # Admin Routes for Plans
 @app.route('/admin/plans')
