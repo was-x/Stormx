@@ -162,6 +162,160 @@ result_lock = threading.Lock()
 online_users = {}
 online_users_lock = threading.Lock()
 
+# Add these admin functions after your existing functions
+
+def verify_admin(username, password):
+    admins = load_json(ADMINS_FILE, {})
+    for admin_id, admin_data in admins.items():
+        if admin_data.get('username') == username and admin_data.get('password') == password:
+            return admin_data
+    return None
+
+def create_plan(plan_id, name, credits_per_day, validity_days, price=0, active=True):
+    plans = load_json(PLANS_FILE, {})
+    plans[plan_id] = {
+        'name': name,
+        'credits_per_day': int(credits_per_day),
+        'validity_days': int(validity_days),
+        'price': float(price),
+        'active': bool(active),
+        'created_at': datetime.now().isoformat()
+    }
+    return save_json(PLANS_FILE, plans)
+
+def update_plan(plan_id, **kwargs):
+    plans = load_json(PLANS_FILE, {})
+    if plan_id in plans:
+        plans[plan_id].update(kwargs)
+        return save_json(PLANS_FILE, plans)
+    return False
+
+def delete_plan(plan_id):
+    plans = load_json(PLANS_FILE, {})
+    if plan_id in plans:
+        del plans[plan_id]
+        return save_json(PLANS_FILE, plans)
+    return False
+
+def get_all_plans():
+    return load_json(PLANS_FILE, {})
+
+def generate_redeem_code(credits, expires_days=30, max_uses=1, created_by=""):
+    redeem_codes = load_json(REDEEM_CODES_FILE, {})
+    code = secrets.token_hex(8).upper()
+    redeem_codes[code] = {
+        'credits': int(credits),
+        'created_at': datetime.now().isoformat(),
+        'expires_at': (datetime.now() + timedelta(days=expires_days)).isoformat(),
+        'max_uses': int(max_uses),
+        'used_count': 0,
+        'created_by': created_by,
+        'used_by': []
+    }
+    save_json(REDEEM_CODES_FILE, redeem_codes)
+    return code
+
+def redeem_code(code, user_id):
+    redeem_codes = load_json(REDEEM_CODES_FILE, {})
+    if code in redeem_codes:
+        code_data = redeem_codes[code]
+        
+        # Check if expired
+        if datetime.now() > datetime.fromisoformat(code_data['expires_at']):
+            return False, "Code has expired"
+        
+        # Check if max uses reached
+        if code_data['used_count'] >= code_data['max_uses']:
+            return False, "Code has been used maximum times"
+        
+        # Check if user already used this code
+        if user_id in code_data['used_by']:
+            return False, "You have already used this code"
+        
+        # Apply credits
+        users = load_json(USERS_FILE, {})
+        if str(user_id) in users:
+            users[str(user_id)]['credits'] = users[str(user_id)].get('credits', 0) + code_data['credits']
+            save_json(USERS_FILE, users)
+            
+            # Update code usage
+            code_data['used_count'] += 1
+            code_data['used_by'].append(user_id)
+            redeem_codes[code] = code_data
+            save_json(REDEEM_CODES_FILE, redeem_codes)
+            
+            return True, f"Successfully redeemed {code_data['credits']} credits"
+    
+    return False, "Invalid redeem code"
+
+def assign_plan_to_user(user_id, plan_id, admin_username):
+    plans = get_all_plans()
+    if plan_id not in plans:
+        return False, "Plan not found"
+    
+    plan = plans[plan_id]
+    user_plans = load_json(USER_PLANS_FILE, {})
+    
+    user_plans[str(user_id)] = {
+        'plan_id': plan_id,
+        'plan_name': plan['name'],
+        'credits_per_day': plan['credits_per_day'],
+        'assigned_at': datetime.now().isoformat(),
+        'expires_at': (datetime.now() + timedelta(days=plan['validity_days'])).isoformat(),
+        'assigned_by': admin_username,
+        'last_credit_date': datetime.now().isoformat()
+    }
+    
+    save_json(USER_PLANS_FILE, user_plans)
+    return True, f"Plan {plan['name']} assigned successfully"
+
+def add_credits_to_user(user_id, credits, admin_username):
+    users = load_json(USERS_FILE, {})
+    if str(user_id) in users:
+        users[str(user_id)]['credits'] = users[str(user_id)].get('credits', 0) + int(credits)
+        save_json(USERS_FILE, users)
+        
+        # Log the action
+        log_admin_action(admin_username, f"Added {credits} credits to user {user_id}")
+        return True, f"Added {credits} credits to user"
+    return False, "User not found"
+
+def get_all_users():
+    return load_json(USERS_FILE, {})
+
+def get_user_plans():
+    return load_json(USER_PLANS_FILE, {})
+
+def get_redeem_codes():
+    return load_json(REDEEM_CODES_FILE, {})
+
+def log_admin_action(admin_username, action):
+    logs = load_json(ADMIN_LOGS_FILE, [])
+    logs.append({
+        'admin': admin_username,
+        'action': action,
+        'timestamp': datetime.now().isoformat()
+    })
+    # Keep only last 1000 logs
+    if len(logs) > 1000:
+        logs = logs[-1000:]
+    save_json(ADMIN_LOGS_FILE, logs)
+
+def add_admin(username, password, role='admin', permissions=None):
+    admins = load_json(ADMINS_FILE, {})
+    admin_id = str(len(admins) + 1)
+    admins[admin_id] = {
+        'username': username,
+        'password': password,
+        'role': role,
+        'permissions': permissions or ['view_users', 'add_credits'],
+        'created_at': datetime.now().isoformat()
+    }
+    return save_json(ADMINS_FILE, admins)
+
+def get_admin_logs():
+    return load_json(ADMIN_LOGS_FILE, [])
+
 def save_user(user_data):
     users = load_json(USERS_FILE, {})
     telegram_id = str(user_data['telegram_id'])
@@ -592,6 +746,221 @@ def index():
                           total_users_checks=stats.get('total_checks', 0),
                           leaderboard=leaderboard,
                           online_users=online_users)
+
+# Admin Login Route
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        admin = verify_admin(username, password)
+        if admin:
+            session['admin_username'] = admin['username']
+            session['admin_role'] = admin['role']
+            session['admin_permissions'] = admin.get('permissions', [])
+            return jsonify({'success': True, 'message': 'Login successful', 'redirect': url_for('admin_dashboard')})
+        else:
+            return jsonify({'success': False, 'message': 'Invalid credentials'})
+    
+    return render_template('admin_login.html')
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('admin_username', None)
+    session.pop('admin_role', None)
+    session.pop('admin_permissions', None)
+    return redirect(url_for('admin_login'))
+
+# Admin Dashboard
+@app.route('/admin/dashboard')
+def admin_dashboard():
+    if 'admin_username' not in session:
+        return redirect(url_for('admin_login'))
+    
+    stats = {
+        'total_users': len(get_all_users()),
+        'total_plans': len(get_all_plans()),
+        'active_user_plans': len(get_user_plans()),
+        'total_redeem_codes': len(get_redeem_codes())
+    }
+    
+    return render_template('admin_dashboard.html', 
+                         stats=stats,
+                         username=session['admin_username'],
+                         role=session['admin_role'])
+
+# Admin Routes for Plans
+@app.route('/admin/plans')
+def admin_plans():
+    if 'admin_username' not in session:
+        return redirect(url_for('admin_login'))
+    
+    plans = get_all_plans()
+    return render_template('admin_plans.html', plans=plans)
+
+@app.route('/admin/create_plan', methods=['POST'])
+def create_plan_route():
+    if 'admin_username' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'})
+    
+    plan_id = request.form.get('plan_id')
+    name = request.form.get('name')
+    credits_per_day = request.form.get('credits_per_day')
+    validity_days = request.form.get('validity_days')
+    price = request.form.get('price', 0)
+    
+    if create_plan(plan_id, name, credits_per_day, validity_days, price):
+        log_admin_action(session['admin_username'], f"Created plan: {name}")
+        return jsonify({'success': True, 'message': 'Plan created successfully'})
+    else:
+        return jsonify({'success': False, 'message': 'Failed to create plan'})
+
+@app.route('/admin/update_plan/<plan_id>', methods=['POST'])
+def update_plan_route(plan_id):
+    if 'admin_username' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'})
+    
+    data = request.get_json()
+    if update_plan(plan_id, **data):
+        log_admin_action(session['admin_username'], f"Updated plan: {plan_id}")
+        return jsonify({'success': True, 'message': 'Plan updated successfully'})
+    else:
+        return jsonify({'success': False, 'message': 'Plan not found'})
+
+@app.route('/admin/delete_plan/<plan_id>')
+def delete_plan_route(plan_id):
+    if 'admin_username' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'})
+    
+    if delete_plan(plan_id):
+        log_admin_action(session['admin_username'], f"Deleted plan: {plan_id}")
+        return jsonify({'success': True, 'message': 'Plan deleted successfully'})
+    else:
+        return jsonify({'success': False, 'message': 'Plan not found'})
+
+# Admin Routes for Users
+@app.route('/admin/users')
+def admin_users():
+    if 'admin_username' not in session:
+        return redirect(url_for('admin_login'))
+    
+    users = get_all_users()
+    user_plans = get_user_plans()
+    return render_template('admin_users.html', users=users, user_plans=user_plans)
+
+@app.route('/admin/add_credits', methods=['POST'])
+def add_credits_route():
+    if 'admin_username' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'})
+    
+    user_id = request.form.get('user_id')
+    credits = request.form.get('credits')
+    
+    success, message = add_credits_to_user(user_id, credits, session['admin_username'])
+    return jsonify({'success': success, 'message': message})
+
+@app.route('/admin/assign_plan', methods=['POST'])
+def assign_plan_route():
+    if 'admin_username' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'})
+    
+    user_id = request.form.get('user_id')
+    plan_id = request.form.get('plan_id')
+    
+    success, message = assign_plan_to_user(user_id, plan_id, session['admin_username'])
+    return jsonify({'success': success, 'message': message})
+
+# Admin Routes for Redeem Codes
+@app.route('/admin/redeem_codes')
+def admin_redeem_codes():
+    if 'admin_username' not in session:
+        return redirect(url_for('admin_login'))
+    
+    redeem_codes = get_redeem_codes()
+    return render_template('admin_redeem_codes.html', redeem_codes=redeem_codes)
+
+@app.route('/admin/generate_redeem_code', methods=['POST'])
+def generate_redeem_code_route():
+    if 'admin_username' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'})
+    
+    credits = request.form.get('credits')
+    expires_days = request.form.get('expires_days', 30)
+    max_uses = request.form.get('max_uses', 1)
+    
+    code = generate_redeem_code(credits, expires_days, max_uses, session['admin_username'])
+    
+    # Send to all users via bot
+    users = get_all_users()
+    for user_id, user_data in users.items():
+        try:
+            send_redeem_code_to_user(int(user_id), code, credits)
+        except:
+            continue
+    
+    log_admin_action(session['admin_username'], f"Generated redeem code: {code} for {credits} credits")
+    return jsonify({'success': True, 'code': code, 'message': 'Redeem code generated and sent to all users'})
+
+def send_redeem_code_to_user(telegram_id, code, credits):
+    user = get_user_by_telegram_id(telegram_id)
+    if user and user.get('chat_id'):
+        try:
+            message = f"🎉 *New Redeem Code Available!*\n\n" \
+                     f"💰 Credits: {credits}\n" \
+                     f"🔑 Code: `{code}`\n\n" \
+                     f"*How to redeem:*\n" \
+                     f"• Web: Go to Profile → Redeem Code\n" \
+                     f"• Bot: Send `/redeem {code}`\n\n" \
+                     f"⏰ Use it before it expires!"
+            
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            requests.post(
+                url,
+                json={
+                    "chat_id": user['chat_id'], 
+                    "text": message, 
+                    "parse_mode": "Markdown"
+                },
+                timeout=10
+            )
+        except Exception as e:
+            print(f"Failed to send redeem code to user {telegram_id}: {e}")
+
+# Add redeem command to bot
+@bot.message_handler(commands=['redeem'])
+def redeem_code_bot(message):
+    try:
+        code = message.text.split()[1]
+        success, result_message = redeem_code(code, message.from_user.id)
+        
+        if success:
+            bot.reply_to(message, f"✅ {result_message}")
+        else:
+            bot.reply_to(message, f"❌ {result_message}")
+    except IndexError:
+        bot.reply_to(message, "❌ Usage: /redeem <code>")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
+# Admin Routes for Logs
+@app.route('/admin/logs')
+def admin_logs():
+    if 'admin_username' not in session:
+        return redirect(url_for('admin_login'))
+    
+    logs = get_admin_logs()
+    return render_template('admin_logs.html', logs=logs)
+
+# Add redeem functionality to user profile
+@app.route('/redeem_code', methods=['POST'])
+def redeem_code_web():
+    if 'telegram_id' not in session:
+        return jsonify({'success': False, 'message': 'Please login first'})
+    
+    code = request.form.get('code')
+    success, message = redeem_code(code, session['telegram_id'])
+    return jsonify({'success': success, 'message': message})
 
 @app.route('/get_leaderboard')
 def get_leaderboard_route():
